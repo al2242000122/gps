@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GPS Mocker</string>
+    <string name="title">GPS Mocker</string>
+    <string name="subtitle">Simula una ubicación para probar aplicaciones Android propias o autorizadas.</string>
+    <string name="latitude">Latitud</string>
+    <string name="longitude">Longitud</string>
+    <string name="start">Aplicar ubicación</string>
+    <string name="stop">Detener simulación</string>
+    <string name="open_settings">Abrir opciones de desarrollador</string>
+    <string name="initial_status">Selecciona esta aplicación en “Aplicación de ubicación simulada” antes de iniciar.</string>
+    <string name="invalid_coordinates">Ingresa coordenadas válidas.</string>
+    <string name="location_active">Ubicación activa: %1$.6f, %2$.6f</string>
+    <string name="location_stopped">Simulación detenida.</string>
+    <string name="select_mock_app">Selecciona GPS Mocker como aplicación de ubicación simulada en las opciones de desarrollador.</string>
+    <string name="generic_error">No fue posible aplicar la ubicación.</string>
+    <string name="disclaimer">Herramienta para pruebas legítimas. Android identifica esta ubicación como simulada; la app no intenta ocultarlo ni evadir controles de terceros.</string>
+</resources>
