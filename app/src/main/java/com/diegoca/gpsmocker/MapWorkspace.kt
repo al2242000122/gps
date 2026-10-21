@@ -124,8 +124,10 @@ class MapWorkspace(
             .put("center", center.array()).put("zoom", zoom)
             .put("camera", cameraCommand ?: JSONObject.NULL)
         state = value.toString()
-        if (ready && !closed) map.evaluateJavascript("window.GpsMap && window.GpsMap.render($state);", null)
-        cameraCommand = null
+        if (ready && !closed) {
+            map.evaluateJavascript("window.GpsMap && window.GpsMap.render($state);", null)
+            cameraCommand = null
+        }
     }
 
     private fun Coordinates.array() = JSONArray().put(longitude).put(latitude)

@@ -215,9 +215,14 @@ class MainActivityTest {
         val controller = launch()
         assertEquals(Coordinates(20.0, -100.0), SimulationStore(application).selection())
         val bridge = shadowOf(controller.get().findViewById<WebView>(R.id.map)).getJavascriptInterface(MapWorkspace.BRIDGE_NAME) as MapWorkspace.Bridge
+        // GPS can resolve while the WebView is still loading. Deliver its camera command when ready.
+        bridge.onReady()
         val center = org.json.JSONObject(bridge.initialState()).getJSONArray("center")
         assertEquals(-100.0, center.getDouble(0), 0.00001)
         assertEquals(20.0, center.getDouble(1), 0.00001)
+        val camera = org.json.JSONObject(bridge.initialState()).getJSONObject("camera").getJSONArray("center")
+        assertEquals(-100.0, camera.getDouble(0), 0.00001)
+        assertEquals(20.0, camera.getDouble(1), 0.00001)
         assertFalse(MockLocationService.isRunning)
         assertNull(shadowOf(application).nextStartedService)
         // Recreating the screen must retain a point chosen manually after the initial fix.
