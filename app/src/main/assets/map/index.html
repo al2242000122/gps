@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src https://tiles.openfreemap.org; img-src 'self' data: blob: https://tiles.openfreemap.org; worker-src blob:; child-src blob:;">
+  <link rel="stylesheet" href="maplibre-gl.css">
+  <link rel="stylesheet" href="workspace.css">
+  <script defer src="maplibre-gl.js"></script>
+  <script defer src="workspace.js"></script>
+</head>
+<body><main id="map" aria-label="Mapa para elegir ubicaciones"></main><div id="map-error" role="status" hidden><span>El mapa necesita conexión y WebGL.</span><button type="button" id="retry">Reintentar</button></div></body>
+</html>

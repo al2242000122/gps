@@ -4,7 +4,7 @@ package com.diegoca.gpsmocker
 interface MockLocationBackend {
     fun install()
     fun enable()
-    fun publish(coordinates: Coordinates)
+    fun publish(fix: SimulatedFix)
     fun remove()
 }
 
@@ -12,14 +12,15 @@ class MockLocationEngine(private val backend: MockLocationBackend) {
     var installed = false
         private set
 
-    fun publish(coordinates: Coordinates) {
+    fun publish(coordinates: Coordinates, options: SimulationOptions = SimulationOptions(),
+                speedMetersPerSecond: Float = 0f, bearingDegrees: Float = 0f) {
         if (!installed) {
             backend.install()
             // Keep ownership even if enabling or the first publication fails.
             installed = true
             backend.enable()
         }
-        backend.publish(coordinates)
+        backend.publish(SimulatedFix(coordinates, options, speedMetersPerSecond, bearingDegrees))
     }
 
     fun stop() {

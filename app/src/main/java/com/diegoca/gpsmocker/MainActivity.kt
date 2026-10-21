@@ -1,286 +1,461 @@
 package com.diegoca.gpsmocker
 
 import android.Manifest
-import android.annotation.SuppressLint
-import android.app.Activity
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
+import android.content.*
 import android.content.pm.PackageManager
-import android.graphics.Color
-import android.os.Build
-import android.os.Bundle
+import android.content.res.Configuration as AndroidConfiguration
+import android.os.*
 import android.provider.Settings
-import android.view.MotionEvent
-import android.view.WindowInsets
-import android.widget.Button
-import android.widget.EditText
-import android.widget.TextView
-import android.widget.Toast
+import android.text.Html
+import android.text.method.LinkMovementMethod
+import android.view.Gravity
+import android.view.View
+import android.widget.*
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.content.ContextCompat
-import org.osmdroid.config.Configuration
-import org.osmdroid.events.MapEventsReceiver
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
-import org.osmdroid.util.GeoPoint
-import org.osmdroid.views.MapView
-import org.osmdroid.views.overlay.MapEventsOverlay
-import org.osmdroid.views.overlay.Marker
-import java.io.File
+import androidx.core.graphics.Insets
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.card.MaterialCardView
+import com.google.android.material.color.DynamicColors
+import com.google.android.material.color.MaterialColors
+import com.google.android.material.progressindicator.LinearProgressIndicator
+import com.google.android.material.snackbar.Snackbar
+import android.webkit.WebView
 import java.util.Locale
+import java.util.concurrent.Executors
 
-class MainActivity : Activity() {
-    private lateinit var latitudeInput: EditText
-    private lateinit var longitudeInput: EditText
-    private lateinit var statusText: TextView
-    private lateinit var stopButton: Button
-    private lateinit var map: MapView
-    private lateinit var marker: Marker
+class MainActivity : AppCompatActivity() {
     private lateinit var store: SimulationStore
+    private lateinit var preferences: AppPreferences
+    private lateinit var library: PlaceLibrary
+    private lateinit var sheets: AppSheets
+    private lateinit var lookup: PlaceLookup
+    private lateinit var workspace: MapWorkspace
+    private lateinit var root: View
+    private lateinit var map: WebView
     private var selected = Coordinates.DEFAULT
-    private var pendingStart: Coordinates? = null
+    private var selectedName = ""
+    private var selectedAddress = ""
+    private var routeDraft = RouteDraft()
+    private var editingRoute = false
+    private var routeMode = false
+        set(value) { field = value; if (::preferences.isInitialized) preferences.routeWorkspace = value }
+    private var pendingRoute: Boolean? = null
+    private var pendingPoint: Coordinates? = null
+    private var exportPoints: List<Coordinates> = emptyList()
+    private var bars = Insets.NONE
     private var receiverRegistered = false
+    private val io = Executors.newSingleThreadExecutor()
 
-    private val statusReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) { refreshStatus() }
+    private val receiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == ACTION_ROUTE_IMPORTED) {
+                routeDraft = preferences.route()
+                routeMode = true; editingRoute = false
+                routeDraft.points.firstOrNull()?.let { select(it, center = true) }
+                message(resources.getQuantityString(R.plurals.gpx_imported, routeDraft.points.size, routeDraft.points.size))
+            }
+            refreshStatus()
+        }
+    }
+
+    private val importGpx = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val context = applicationContext
+            val prior = preferences.route()
+            io.execute {
+                val result = runCatching {
+                    val points = context.contentResolver.openInputStream(uri)?.use(GpxCodec::read)
+                        ?: throw IllegalArgumentException("No se pudo abrir el archivo.")
+                    RouteNavigator(points, prior.speedKmh, prior.loop)
+                    AppPreferences(context).saveRoute(prior.copy(points = points))
+                    AppPreferences(context).routeWorkspace = true
+                    points.size
+                }
+                if (result.isSuccess) context.sendBroadcast(Intent(ACTION_ROUTE_IMPORTED).setPackage(context.packageName))
+                else runOnUiThread { if (!isDestroyed) message(getString(R.string.gpx_failed, result.exceptionOrNull()?.message.orEmpty())) }
+            }
+        }
+    }
+
+    private val exportGpx = registerForActivityResult(ActivityResultContracts.CreateDocument("application/gpx+xml")) { uri ->
+        if (uri != null && exportPoints.size >= 2) {
+            val points = exportPoints.toList()
+            val resolver = applicationContext.contentResolver
+            io.execute {
+                val result = runCatching {
+                    resolver.openOutputStream(uri, "wt")?.use { GpxCodec.write(it, points) }
+                        ?: throw IllegalArgumentException("No se pudo guardar el archivo.")
+                }
+                runOnUiThread { if (!isDestroyed) message(if (result.isSuccess) getString(R.string.gpx_exported)
+                    else getString(R.string.gpx_failed, result.exceptionOrNull()?.message.orEmpty())) }
+            }
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        preferences = AppPreferences(this)
         super.onCreate(savedInstanceState)
+        if (preferences.dynamicColor) DynamicColors.applyToActivityIfAvailable(this)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         store = SimulationStore(this)
-        Configuration.getInstance().apply {
-            userAgentValue = "$packageName/${packageManager.getPackageInfo(packageName, 0).versionName}"
-            osmdroidBasePath = File(filesDir, "maps")
-            osmdroidTileCache = File(cacheDir, "map-tiles")
-        }
+        library = PlaceLibrary(this)
+        sheets = AppSheets(this)
+        lookup = PlaceLookup(this)
         setContentView(R.layout.activity_main)
-        applyWindowInsets()
-        latitudeInput = findViewById(R.id.latitudeInput)
-        longitudeInput = findViewById(R.id.longitudeInput)
-        statusText = findViewById(R.id.statusText)
-        stopButton = findViewById(R.id.stopButton)
+        root = findViewById(R.id.contentRoot)
         map = findViewById(R.id.map)
-        selected = savedInstanceState?.let {
-            Coordinates.from(it.getDouble("latitude", Double.NaN), it.getDouble("longitude", Double.NaN))
-        } ?: store.selection()
-        pendingStart = savedInstanceState?.let {
-            Coordinates.from(it.getDouble("pendingLatitude", Double.NaN), it.getDouble("pendingLongitude", Double.NaN))
-        }
-        configureMap(savedInstanceState)
-        updateSelection(selected, center = false)
-
-        findViewById<Button>(R.id.centerButton).setOnClickListener {
-            readCoordinates()?.let { updateSelection(it, center = true) }
-        }
-        findViewById<Button>(R.id.startButton).setOnClickListener {
-            readCoordinates()?.let { target ->
-                updateSelection(target, center = true)
-                requestSimulation(target)
+        selected = store.selection()
+        selectedName = store.selectionName
+        routeDraft = preferences.route()
+        editingRoute = savedInstanceState?.getBoolean("editingRoute") ?: false
+        routeMode = savedInstanceState?.getBoolean("routeMode") ?: preferences.routeWorkspace
+        pendingRoute = savedInstanceState?.let { if (it.containsKey("pendingRoute")) it.getBoolean("pendingRoute") else null }
+        pendingPoint = savedInstanceState?.let { Coordinates.from(it.getDouble("pendingLatitude", Double.NaN), it.getDouble("pendingLongitude", Double.NaN)) }
+        exportPoints = savedInstanceState?.getDoubleArray("exportPoints")?.toList()?.chunked(2)?.mapNotNull {
+            if (it.size == 2) Coordinates.from(it[0], it[1]) else null
+        }.orEmpty()
+        workspace = MapWorkspace(this, map, ::mapSelected, onMoveRoutePoint = { index, point ->
+            val points = routeDraft.points.toMutableList()
+            if (index in points.indices) {
+                points[index] = point
+                saveDraft(routeDraft.copy(points = points))
+                select(point, center = false)
+                refreshStatus()
             }
+        }, onError = { message(it) })
+        applyMapStyle()
+        workspace.restore(savedInstanceState, selected)
+        select(selected, center = false, name = selectedName, address = store.selectionAddress, reverse = false)
+        bindActions()
+        findViewById<TextView>(R.id.attributionText).apply {
+            text = Html.fromHtml("© <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> · <a href=\"https://openmaptiles.org\">OpenMapTiles</a> · <a href=\"https://openfreemap.org\">OpenFreeMap</a>", Html.FROM_HTML_MODE_LEGACY)
+            movementMethod = LinkMovementMethod.getInstance()
         }
-        stopButton.setOnClickListener {
-            try {
-                startService(Intent(this, MockLocationService::class.java).setAction(MockLocationService.ACTION_STOP))
-            } catch (_: Exception) {
-                showStatus(getString(R.string.cleanup_failed), true)
-            }
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            adaptLayout()
+            insets
         }
-        findViewById<Button>(R.id.settingsButton).setOnClickListener { openDeveloperOptions() }
+        root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> adaptLayout() }
+        findViewById<View>(R.id.locationCard).addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> adaptLayout() }
+        ViewCompat.requestApplyInsets(root)
         refreshStatus()
     }
 
-    @SuppressLint("ClickableViewAccessibility")
-    private fun configureMap(savedState: Bundle?) {
-        map.setTileSource(TileSourceFactory.MAPNIK)
-        map.setMultiTouchControls(true)
-        map.minZoomLevel = 2.0
-        map.maxZoomLevel = 19.0
-        map.controller.setZoom(savedState?.getDouble("zoom", 14.0) ?: 14.0)
-        val center = savedState?.let {
-            Coordinates.from(it.getDouble("centerLatitude", Double.NaN), it.getDouble("centerLongitude", Double.NaN))
-        } ?: selected
-        map.controller.setCenter(GeoPoint(center.latitude, center.longitude))
-        map.setOnTouchListener { view, event ->
-            view.parent.requestDisallowInterceptTouchEvent(
-                event.actionMasked != MotionEvent.ACTION_UP && event.actionMasked != MotionEvent.ACTION_CANCEL
-            )
-            false
-        }
-        map.overlays.add(MapEventsOverlay(object : MapEventsReceiver {
-            override fun singleTapConfirmedHelper(point: GeoPoint): Boolean {
-                selectPoint(point)
-                return true
+    private fun bindActions() {
+        val search = View.OnClickListener { sheets.search(lookup) {
+            routeMode = false; editingRoute = false
+            workspace.zoom(16.0)
+            select(it.coordinates, true, it.title, it.address, reverse = false)
+            refreshStatus()
+        } }
+        findViewById<View>(R.id.searchButton).setOnClickListener(search)
+        findViewById<View>(R.id.searchLabel).setOnClickListener(search)
+        findViewById<View>(R.id.libraryButton).setOnClickListener {
+            sheets.library(library) {
+                routeMode = false; editingRoute = false
+                select(it.coordinates, true, it.name)
+                refreshStatus()
             }
-            override fun longPressHelper(point: GeoPoint): Boolean {
-                selectPoint(point)
-                return true
+        }
+        findViewById<View>(R.id.favoriteButton).setOnClickListener {
+            sheets.favorite(library, selected, selectedName) { refreshFavorite(); message(getString(R.string.favorite_saved)) }
+        }
+        findViewById<View>(R.id.copyButton).setOnClickListener {
+            getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(getString(R.string.selected_point), coordinatesText(selected)))
+            message(getString(R.string.coordinates_copied))
+        }
+        findViewById<View>(R.id.shareButton).setOnClickListener { share() }
+        findViewById<View>(R.id.routesButton).setOnClickListener { showRoutes() }
+        findViewById<View>(R.id.settingsButton).setOnClickListener {
+            sheets.settings(preferences, onSave = { options, dynamic ->
+                val changed = preferences.dynamicColor != dynamic
+                preferences.saveOptions(options)
+                preferences.dynamicColor = dynamic
+                if (MockLocationService.isRunning) sendService(MockLocationService.ACTION_OPTIONS)
+                message(getString(R.string.options_saved))
+                if (changed) root.post { recreate() }
+            }, onDeveloper = { developerGuide() })
+        }
+        findViewById<View>(R.id.layersButton).setOnClickListener {
+            sheets.mapAppearance(preferences.mapStyle) { preferences.mapStyle = it; applyMapStyle() }
+        }
+        findViewById<View>(R.id.centerButton).setOnClickListener {
+            workspace.center(MockLocationService.snapshot?.coordinates ?: selected)
+        }
+        findViewById<View>(R.id.startButton).setOnClickListener { requestSimulation(routeMode) }
+        findViewById<View>(R.id.stopButton).setOnClickListener { sendService(MockLocationService.ACTION_STOP) }
+        findViewById<View>(R.id.pauseButton).setOnClickListener { sendService(MockLocationService.ACTION_TOGGLE_PAUSE) }
+        findViewById<View>(R.id.undoButton).setOnClickListener {
+            if (routeDraft.points.isNotEmpty()) {
+                saveDraft(routeDraft.copy(points = routeDraft.points.dropLast(1)))
+                routeDraft.points.lastOrNull()?.let { select(it, false) }
+                refreshStatus()
             }
-        }))
-        marker = Marker(map).apply {
-            title = getString(R.string.marker_title)
-            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-            isDraggable = true
-            setOnMarkerDragListener(object : Marker.OnMarkerDragListener {
-                override fun onMarkerDragStart(marker: Marker) { marker.closeInfoWindow() }
-                override fun onMarkerDrag(marker: Marker) = Unit
-                override fun onMarkerDragEnd(marker: Marker) { selectPoint(marker.position) }
-            })
         }
-        map.overlays.add(marker)
+        findViewById<View>(R.id.finishRouteButton).setOnClickListener { editingRoute = false; refreshStatus(); showRoutes() }
     }
 
-    private fun selectPoint(point: GeoPoint) {
-        val longitude = ((point.longitude + 180.0) % 360.0 + 360.0) % 360.0 - 180.0
-        Coordinates.from(point.latitude, longitude)?.let { updateSelection(it, center = false) }
+    private fun mapSelected(point: Coordinates) {
+        if (editingRoute) {
+            if (routeDraft.points.size >= RouteNavigator.MAX_POINTS) { message(getString(R.string.route_max_points)); return }
+            if (routeDraft.points.lastOrNull() != point) saveDraft(routeDraft.copy(points = routeDraft.points + point))
+        } else routeMode = false
+        select(point, center = false, reverse = !editingRoute)
+        refreshStatus()
     }
 
-    private fun updateSelection(coordinates: Coordinates, center: Boolean) {
-        selected = coordinates
-        latitudeInput.setText(String.format(Locale.US, "%.6f", coordinates.latitude))
-        longitudeInput.setText(String.format(Locale.US, "%.6f", coordinates.longitude))
-        marker.position = GeoPoint(coordinates.latitude, coordinates.longitude)
-        marker.closeInfoWindow()
-        if (center) map.controller.animateTo(marker.position)
-        map.invalidate()
-        store.saveSelection(coordinates)
-    }
-
-    private fun readCoordinates(): Coordinates? {
-        val result = Coordinates.parse(latitudeInput.text.toString(), longitudeInput.text.toString())
-        if (result == null) showStatus(getString(R.string.invalid_coordinates), true)
-        return result
-    }
-
-    private fun requestSimulation(target: Coordinates) {
-        if (!MockPermissions.isMockApp(this)) {
-            showStatus(getString(R.string.select_mock_app), true)
-            openDeveloperOptions()
-            return
+    private fun select(point: Coordinates, center: Boolean, name: String = getString(R.string.selected_point), address: String = "", reverse: Boolean = true) {
+        selected = point
+        selectedName = name
+        selectedAddress = address
+        store.saveSelection(point)
+        store.selectionName = name
+        store.selectionAddress = address
+        workspace.select(point, center)
+        displaySelection()
+        if (reverse) lookup.reverse(point) { place ->
+            if (place != null && selected == point) {
+                if (selectedName == getString(R.string.selected_point)) selectedName = place.title
+                selectedAddress = place.address
+                store.selectionName = selectedName
+                store.selectionAddress = selectedAddress
+                displaySelection()
+            }
         }
+    }
+
+    private fun displaySelection() {
+        findViewById<TextView>(R.id.placeTitle).text = selectedName
+        findViewById<TextView>(R.id.addressText).text = selectedAddress.ifBlank { getString(R.string.only_map_selection) }
+        findViewById<TextView>(R.id.coordinatesText).text = coordinatesText(selected)
+        refreshFavorite()
+    }
+
+    private fun refreshFavorite() {
+        val saved = library.favoriteAt(selected) != null
+        findViewById<MaterialButton>(R.id.favoriteButton).setIconResource(if (saved) R.drawable.ic_star_filled else R.drawable.ic_star)
+    }
+
+    private fun showRoutes() {
+        sheets.routes(routeDraft,
+            onEdit = {
+                val points = it.points.ifEmpty { listOf(selected) }
+                saveDraft(it.copy(points = points)); routeMode = true; editingRoute = true
+                refreshStatus(); message(getString(R.string.route_edit_hint))
+            },
+            onStart = { saveDraft(it); routeMode = true; editingRoute = false; refreshStatus(); requestSimulation(true) },
+            onImport = { saveDraft(it); importGpx.launch(arrayOf("application/gpx+xml", "application/xml", "text/xml", "application/octet-stream", "*/*")) },
+            onExport = { saveDraft(it); exportPoints = it.points.toList(); exportGpx.launch("gps-mocker-ruta.gpx") },
+            onClear = { saveDraft(routeDraft.copy(points = emptyList())); editingRoute = false; routeMode = false; refreshStatus() })
+    }
+
+    private fun saveDraft(draft: RouteDraft) { routeDraft = draft; preferences.saveRoute(draft) }
+
+    private fun requestSimulation(route: Boolean, target: Coordinates = selected) {
+        if (route) {
+            try { RouteNavigator(routeDraft.points, routeDraft.speedKmh, routeDraft.loop) }
+            catch (error: IllegalArgumentException) { message(error.message ?: getString(R.string.route_need_points)); return }
+        }
+        if (!MockPermissions.isMockApp(this)) { developerGuide(); return }
         if (!MockPermissions.hasLocation(this)) {
-            pendingStart = target
-            requestPermissions(
-                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
-                LOCATION_REQUEST
-            )
+            pendingRoute = route; pendingPoint = target
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), LOCATION_REQUEST)
             return
         }
         if (!MockPermissions.locationEnabled(this)) {
-            showStatus(getString(R.string.enable_location), true)
+            message(getString(R.string.enable_location))
             runCatching { startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)) }
             return
         }
         try {
-            startForegroundService(
-                Intent(this, MockLocationService::class.java)
-                    .setAction(MockLocationService.ACTION_START)
-                    .putExtra(MockLocationService.EXTRA_LATITUDE, target.latitude)
-                    .putExtra(MockLocationService.EXTRA_LONGITUDE, target.longitude)
-            )
-            if (Build.VERSION.SDK_INT >= 33 &&
-                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-            ) {
+            val intent = Intent(this, MockLocationService::class.java)
+                .setAction(if (route) MockLocationService.ACTION_START_ROUTE else MockLocationService.ACTION_START)
+                .putExtra(MockLocationService.EXTRA_LATITUDE, target.latitude)
+                .putExtra(MockLocationService.EXTRA_LONGITUDE, target.longitude)
+            if (route) { preferences.saveRoute(routeDraft); editingRoute = false }
+            startForegroundService(intent)
+            if (Build.VERSION.SDK_INT >= 33 && !preferences.notificationsPrompted &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                preferences.notificationsPrompted = true
                 requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIFICATION_REQUEST)
             }
-        } catch (_: Exception) {
-            showStatus(getString(R.string.start_failed), true)
+        } catch (_: Exception) { message(getString(R.string.start_failed)) }
+    }
+
+    private fun sendService(action: String) {
+        try { startService(Intent(this, MockLocationService::class.java).setAction(action)) }
+        catch (_: Exception) { message(getString(if (action == MockLocationService.ACTION_STOP) R.string.cleanup_failed else R.string.start_failed)) }
+    }
+
+    private fun developerGuide() { sheets.developer {
+        runCatching { startActivity(DeveloperSettings.mockLocationIntent()) }
+            .recoverCatching { startActivity(Intent(Settings.ACTION_SETTINGS)) }
+            .onFailure { message(getString(R.string.settings_unavailable)) }
+    } }
+
+    private fun refreshStatus() {
+        val state = MockLocationService.snapshot.takeIf { MockLocationService.isRunning }
+        val interrupted = store.cleanupNeeded && state == null && !store.hasError
+        val status = findViewById<TextView>(R.id.statusText)
+        val statusMessage = when {
+            interrupted -> getString(R.string.simulation_interrupted)
+            store.hasError && state == null -> store.message
+            state?.completed == true -> getString(R.string.route_completed)
+            state?.paused == true -> getString(R.string.route_paused)
+            state?.routePoints?.isNotEmpty() == true -> getString(R.string.route_running)
+            state != null -> getString(R.string.simulation_badge)
+            editingRoute -> resources.getQuantityString(R.plurals.route_editor_badge, routeDraft.points.size, routeDraft.points.size)
+            else -> getString(R.string.select_point_hint)
         }
+        if (status.text.toString() != statusMessage) status.text = statusMessage
+        status.setTextColor(if (interrupted || store.hasError && state == null) MaterialColors.getColor(this, com.google.android.material.R.attr.colorError, "status")
+            else MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant, "status"))
+        findViewById<View>(R.id.stopButton).visibility = if (state != null || store.cleanupNeeded) View.VISIBLE else View.GONE
+        val pause = findViewById<MaterialButton>(R.id.pauseButton)
+        pause.visibility = if (state?.routePoints?.isNotEmpty() == true && !state.completed) View.VISIBLE else View.GONE
+        pause.setIconResource(if (state?.paused == true) R.drawable.ic_play else R.drawable.ic_pause)
+        pause.contentDescription = getString(if (state?.paused == true) R.string.resume else R.string.pause)
+        findViewById<MaterialButton>(R.id.startButton).apply {
+            setText(if (routeMode) R.string.route_start else if (state != null) R.string.update_location else R.string.begin)
+            icon = if (pause.visibility == View.VISIBLE) null else AppCompatResources.getDrawable(this@MainActivity, R.drawable.ic_play)
+        }
+        findViewById<View>(R.id.routeBanner).visibility = if (editingRoute) View.VISIBLE else View.GONE
+        findViewById<TextView>(R.id.routeEditHint).text = resources.getQuantityString(R.plurals.route_editor_badge, routeDraft.points.size, routeDraft.points.size)
+        findViewById<View>(R.id.undoButton).isEnabled = routeDraft.points.isNotEmpty()
+        val progress = state?.routePoints?.isNotEmpty() == true
+        findViewById<View>(R.id.routeProgressRow).visibility = if (progress) View.VISIBLE else View.GONE
+        if (progress) {
+            findViewById<LinearProgressIndicator>(R.id.routeProgress).setProgressCompat((state.fraction * 1000).toInt(), false)
+            findViewById<TextView>(R.id.routeProgressText).text = getString(R.string.route_progress,
+                (state.fraction * 100).toInt(), String.format(Locale.getDefault(), "%.1f", state.speedKmh))
+        }
+        workspace.active(state?.coordinates)
+        workspace.route(if (routeMode || editingRoute) routeDraft.points else state?.routePoints.orEmpty(), editingRoute)
+    }
+
+    private fun share() {
+        val text = getString(R.string.share_location_text, selectedName, coordinatesText(selected),
+            selected.latitude.toString(), selected.longitude.toString())
+        val intent = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+        runCatching { startActivity(Intent.createChooser(intent, getString(R.string.share_location))) }
+            .onFailure { message(getString(R.string.settings_unavailable)) }
+    }
+
+    private fun coordinatesText(point: Coordinates) = String.format(Locale.US, "%.6f, %.6f", point.latitude, point.longitude)
+    private fun message(text: String) { Snackbar.make(root, text, Snackbar.LENGTH_LONG).setAnchorView(R.id.locationCard).show() }
+
+    @Suppress("DEPRECATION")
+    private fun applyMapStyle() {
+        if (::workspace.isInitialized) workspace.style(preferences.mapStyle)
+        val dark = preferences.mapStyle == "dark" || preferences.mapStyle == "auto" &&
+            resources.configuration.uiMode and AndroidConfiguration.UI_MODE_NIGHT_MASK == AndroidConfiguration.UI_MODE_NIGHT_YES
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !dark
+            isAppearanceLightNavigationBars = resources.configuration.uiMode and AndroidConfiguration.UI_MODE_NIGHT_MASK != AndroidConfiguration.UI_MODE_NIGHT_YES
+        }
+        if (Build.VERSION.SDK_INT < 27) {
+            window.navigationBarColor = android.graphics.Color.BLACK
+        }
+    }
+
+    private fun adaptLayout() {
+        if (root.width == 0 || root.height == 0) return
+        val density = resources.displayMetrics.density
+        fun dp(value: Int) = (value * density).toInt()
+        val wide = root.width > root.height && root.width / density >= 600
+        fun margins(id: Int, width: Int, gravity: Int, left: Int, top: Int, right: Int, bottom: Int, height: Int? = null) {
+            val view = findViewById<View>(id)
+            val params = view.layoutParams as FrameLayout.LayoutParams
+            val h = height ?: params.height
+            if (params.width != width || params.height != h || params.gravity != gravity || params.leftMargin != left ||
+                params.topMargin != top || params.rightMargin != right || params.bottomMargin != bottom) {
+                params.width = width; params.height = h; params.gravity = gravity
+                params.setMargins(left, top, right, bottom)
+                view.layoutParams = params
+            }
+        }
+        val card = findViewById<MaterialCardView>(R.id.locationCard)
+        val maximum = if (wide) root.height - bars.top - bars.bottom - dp(24)
+            else ((root.height - bars.top - bars.bottom) * 0.58).toInt()
+        findViewById<BoundedScrollView>(R.id.locationScroll).maximumHeight = maximum.coerceAtLeast(dp(200))
+        margins(R.id.locationCard, if (wide) dp(360) else -1, Gravity.BOTTOM or if (wide) Gravity.END else Gravity.CENTER_HORIZONTAL,
+            bars.left + dp(12), if (wide) bars.top + dp(12) else 0, bars.right + dp(12), bars.bottom + dp(12), -2)
+        val searchWidth = if (wide) (root.width - dp(404) - bars.left - bars.right).coerceAtLeast(dp(180)) else -1
+        margins(R.id.searchCard, searchWidth, Gravity.TOP or Gravity.START,
+            bars.left + dp(16), bars.top + dp(12), bars.right + dp(16), 0)
+        margins(R.id.routeBanner, searchWidth, Gravity.TOP or Gravity.START,
+            bars.left + dp(16), bars.top + dp(84), bars.right + dp(16), 0)
+        val cardHeight = card.height
+        margins(R.id.mapControls, dp(56), Gravity.BOTTOM or if (wide) Gravity.START else Gravity.END,
+            bars.left + dp(16), 0, bars.right + dp(16), bars.bottom + dp(24) + if (wide) 0 else cardHeight)
+        margins(R.id.attributionText, -2, Gravity.BOTTOM or Gravity.START, bars.left + dp(16), 0,
+            bars.right + dp(90), bars.bottom + if (wide) dp(4) else cardHeight + dp(16))
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == LOCATION_REQUEST) {
-            val target = pendingStart
-            pendingStart = null
-            if (MockPermissions.hasLocation(this) && target != null) requestSimulation(target)
-            else showStatus(getString(R.string.location_permission_needed), true)
-        } else if (requestCode == NOTIFICATION_REQUEST &&
-            grantResults.firstOrNull() != PackageManager.PERMISSION_GRANTED
-        ) {
-            Toast.makeText(this, R.string.notification_permission_optional, Toast.LENGTH_LONG).show()
-        }
-    }
-
-    private fun refreshStatus() {
-        val interrupted = store.cleanupNeeded && !MockLocationService.isRunning && !store.hasError
-        val message = if (interrupted) getString(R.string.simulation_interrupted)
-        else store.message ?: getString(R.string.initial_status)
-        statusText.text = message
-        statusText.setTextColor(if (interrupted || store.hasError) Color.rgb(185, 28, 28) else Color.rgb(22, 101, 52))
-        stopButton.isEnabled = MockLocationService.isRunning || store.cleanupNeeded
-    }
-
-    private fun showStatus(message: String, error: Boolean) {
-        statusText.text = message
-        statusText.setTextColor(if (error) Color.rgb(185, 28, 28) else Color.rgb(22, 101, 52))
-        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-    }
-
-    private fun openDeveloperOptions() {
-        runCatching { startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)) }
-            .recoverCatching { startActivity(Intent(Settings.ACTION_SETTINGS)) }
-            .onFailure { showStatus(getString(R.string.settings_unavailable), true) }
-    }
-
-    @Suppress("DEPRECATION")
-    private fun applyWindowInsets() {
-        findViewById<android.view.View>(R.id.contentRoot).setOnApplyWindowInsetsListener { view, insets ->
-            if (Build.VERSION.SDK_INT >= 30) {
-                val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
-                view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            } else {
-                view.setPadding(insets.systemWindowInsetLeft, insets.systemWindowInsetTop,
-                    insets.systemWindowInsetRight, insets.systemWindowInsetBottom)
-            }
-            insets
+            val route = pendingRoute; val point = pendingPoint
+            pendingRoute = null; pendingPoint = null
+            if (MockPermissions.hasLocation(this) && route != null && point != null) requestSimulation(route, point)
+            else message(getString(R.string.location_permission_needed))
+        } else if (requestCode == NOTIFICATION_REQUEST && grantResults.firstOrNull() != PackageManager.PERMISSION_GRANTED) {
+            message(getString(R.string.notification_permission_optional))
         }
     }
 
     override fun onStart() {
         super.onStart()
-        val filter = IntentFilter(MockLocationService.ACTION_STATUS)
-        ContextCompat.registerReceiver(this, statusReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        ContextCompat.registerReceiver(this, receiver, IntentFilter().apply {
+            addAction(MockLocationService.ACTION_STATUS); addAction(ACTION_ROUTE_IMPORTED)
+        }, ContextCompat.RECEIVER_NOT_EXPORTED)
         receiverRegistered = true
     }
 
     override fun onResume() {
         super.onResume()
         map.onResume()
+        val latest = preferences.route()
+        if (latest.points != routeDraft.points && preferences.routeWorkspace) {
+            editingRoute = false
+            latest.points.firstOrNull()?.let { select(it, true) }
+        }
+        routeDraft = latest
+        routeMode = preferences.routeWorkspace
         refreshStatus()
     }
 
-    override fun onPause() {
-        Coordinates.parse(latitudeInput.text.toString(), longitudeInput.text.toString())?.let(store::saveSelection)
-        map.onPause()
-        super.onPause()
-    }
-
+    override fun onPause() { map.onPause(); super.onPause() }
     override fun onStop() {
-        if (receiverRegistered) unregisterReceiver(statusReceiver)
+        if (receiverRegistered) unregisterReceiver(receiver)
         receiverRegistered = false
         super.onStop()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
-        val draft = Coordinates.parse(latitudeInput.text.toString(), longitudeInput.text.toString()) ?: selected
-        outState.putDouble("latitude", draft.latitude)
-        outState.putDouble("longitude", draft.longitude)
-        outState.putDouble("zoom", map.zoomLevelDouble)
-        outState.putDouble("centerLatitude", map.mapCenter.latitude)
-        outState.putDouble("centerLongitude", map.mapCenter.longitude)
-        pendingStart?.let {
-            outState.putDouble("pendingLatitude", it.latitude)
-            outState.putDouble("pendingLongitude", it.longitude)
-        }
+        workspace.save(outState)
+        outState.putBoolean("editingRoute", editingRoute)
+        outState.putBoolean("routeMode", routeMode)
+        pendingRoute?.let { outState.putBoolean("pendingRoute", it) }
+        pendingPoint?.let { outState.putDouble("pendingLatitude", it.latitude); outState.putDouble("pendingLongitude", it.longitude) }
+        if (exportPoints.isNotEmpty()) outState.putDoubleArray("exportPoints", exportPoints.flatMap { listOf(it.latitude, it.longitude) }.toDoubleArray())
         super.onSaveInstanceState(outState)
     }
 
     override fun onDestroy() {
-        map.onDetach()
+        sheets.close(); lookup.close(); io.shutdown(); workspace.close()
         super.onDestroy()
     }
 
     companion object {
+        const val ACTION_ROUTE_IMPORTED = "com.diegoca.gpsmocker.ROUTE_IMPORTED"
         private const val LOCATION_REQUEST = 100
         private const val NOTIFICATION_REQUEST = 101
     }

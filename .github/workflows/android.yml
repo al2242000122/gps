@@ -53,5 +53,6 @@ jobs:
           path: |
             app/build/reports/tests/testDebugUnitTest/
             app/build/reports/lint-results-debug.*
+            app/build/outputs/previews/*.png
           if-no-files-found: ignore
           retention-days: 7

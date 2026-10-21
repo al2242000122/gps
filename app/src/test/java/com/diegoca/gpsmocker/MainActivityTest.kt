@@ -2,110 +2,215 @@ package com.diegoca.gpsmocker
 
 import android.app.AppOpsManager
 import android.app.Application
+import android.content.ClipboardManager
+import android.content.DialogInterface
 import android.content.pm.PackageManager
 import android.content.pm.PermissionInfo
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.os.Bundle
 import android.os.Process
 import android.provider.Settings
+import android.view.View
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ListView
 import android.widget.TextView
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
+import androidx.appcompat.app.AlertDialog
+import com.google.android.material.button.MaterialButton
+import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.osmdroid.views.MapView
-import org.osmdroid.views.overlay.Marker
+import android.webkit.WebView
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import org.robolectric.android.controller.ActivityController
+import org.robolectric.shadows.ShadowDialog
+import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28, 35])
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class MainActivityTest {
     private val application: Application get() = RuntimeEnvironment.getApplication()
 
+    @Suppress("DEPRECATION")
     @Before fun grantInstallTimeSignaturePermission() {
-        // Older Robolectric SDKs do not automatically grant an app's own signature
-        // permission. Verify the merged manifest, then emulate the install-time grant.
         val permission = "${application.packageName}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
         val info = application.packageManager.getPackageInfo(application.packageName, PackageManager.GET_PERMISSIONS)
         assertTrue(info.requestedPermissions.orEmpty().contains(permission))
-        assertEquals(PermissionInfo.PROTECTION_SIGNATURE,
-            application.packageManager.getPermissionInfo(permission, 0).protectionLevel)
+        assertEquals(PermissionInfo.PROTECTION_SIGNATURE, application.packageManager.getPermissionInfo(permission, 0).protectionLevel)
         shadowOf(application).grantPermissions(permission)
     }
 
     private fun launch(): ActivityController<MainActivity> {
         val controller = Robolectric.buildActivity(MainActivity::class.java).create()
-        // The UI tests do not depend on external tile-server availability.
-        controller.get().findViewById<MapView>(R.id.map).setUseDataConnection(false)
-        return controller.start().resume().visible()
+        controller.get().findViewById<WebView>(R.id.map).settings.blockNetworkLoads = true
+        controller.start().resume().visible()
+        layout(controller.get())
+        return controller
     }
 
-    @Test fun `loads saved selection and applies manual coordinates to the marker`() {
-        SimulationStore(application).saveSelection(Coordinates(40.4168, -3.7038))
-        val controller = launch()
-        val activity = controller.get()
-        val map = activity.findViewById<MapView>(R.id.map)
-        map.setUseDataConnection(false)
-        assertEquals("40.416800", activity.findViewById<EditText>(R.id.latitudeInput).text.toString())
-        activity.findViewById<EditText>(R.id.latitudeInput).setText("51,5")
-        activity.findViewById<EditText>(R.id.longitudeInput).setText("-0,12")
-        activity.findViewById<Button>(R.id.centerButton).performClick()
-        val marker = map.overlays.filterIsInstance<Marker>().single()
-        assertEquals(51.5, marker.position.latitude, 0.000001)
-        assertEquals(-0.12, marker.position.longitude, 0.000001)
-        assertEquals(Coordinates(51.5, -0.12), SimulationStore(application).selection())
-        controller.pause().stop().destroy()
-    }
-
-    @Test fun `invalid coordinates show an error without starting a service`() {
-        val controller = launch()
-        val activity = controller.get()
-        activity.findViewById<MapView>(R.id.map).setUseDataConnection(false)
-        activity.findViewById<EditText>(R.id.latitudeInput).setText("91")
-        activity.findViewById<Button>(R.id.startButton).performClick()
-        assertEquals(activity.getString(R.string.invalid_coordinates), activity.findViewById<TextView>(R.id.statusText).text)
-        assertNull(shadowOf(application).nextStartedService)
-        controller.pause().stop().destroy()
-    }
-
-    @Test fun `missing mock selection opens developer settings without starting simulation`() {
-        shadowOf(application.getSystemService(AppOpsManager::class.java)).setMode(
-            AppOpsManager.OPSTR_MOCK_LOCATION, Process.myUid(), application.packageName, AppOpsManager.MODE_ERRORED
-        )
-        val controller = launch()
-        val activity = controller.get()
-        activity.findViewById<MapView>(R.id.map).setUseDataConnection(false)
-        activity.findViewById<Button>(R.id.startButton).performClick()
-        assertEquals(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS, shadowOf(activity).nextStartedActivity.action)
-        assertNull(shadowOf(application).nextStartedService)
-        controller.pause().stop().destroy()
-    }
-
-    @Test fun `interrupted process offers cleanup instead of claiming simulation is active`() {
-        SimulationStore(application).apply {
-            cleanupNeeded = true
-            writeStatus("Ubicación activa")
+    private fun layout(activity: MainActivity, width: Int = 1080, height: Int = 2200) {
+        val decor = activity.window.decorView
+        repeat(3) {
+            views(decor).forEach { it.forceLayout() }
+            decor.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
+            decor.layout(0, 0, width, height)
         }
+    }
+
+    @Test fun `coordinates are read only and loaded from the selected place`() {
+        SimulationStore(application).apply { saveSelection(Coordinates(40.4168, -3.7038)); selectionName = "Madrid" }
         val controller = launch()
         val activity = controller.get()
-        activity.findViewById<MapView>(R.id.map).setUseDataConnection(false)
-        assertEquals(activity.getString(R.string.simulation_interrupted), activity.findViewById<TextView>(R.id.statusText).text)
+        val coordinates = activity.findViewById<TextView>(R.id.coordinatesText)
+        assertEquals("40.416800, -3.703800", coordinates.text.toString())
+        assertFalse(coordinates is EditText)
+        assertEquals(0, views(activity.findViewById(R.id.contentRoot)).filterIsInstance<EditText>().size)
+        assertEquals("Madrid", activity.findViewById<TextView>(R.id.placeTitle).text.toString())
+        controller.pause().stop().destroy()
+    }
+
+    @Test fun `map tap changes selection and copy uses the selected coordinates`() {
+        val controller = launch()
+        val activity = controller.get()
+        tap(activity, Coordinates(19.433, -99.132))
+        val selected = SimulationStore(application).selection()
+        assertEquals(19.433, selected.latitude, 0.00005)
+        assertEquals(-99.132, selected.longitude, 0.00005)
+        activity.findViewById<Button>(R.id.copyButton).performClick()
+        val copied = activity.getSystemService(ClipboardManager::class.java).primaryClip!!.getItemAt(0).text.toString()
+        assertEquals(activity.findViewById<TextView>(R.id.coordinatesText).text.toString(), copied)
+        controller.pause().stop().destroy()
+    }
+
+    @Test fun `developer guide requests scrolling and highlighting of the mock location preference`() {
+        shadowOf(application.getSystemService(AppOpsManager::class.java)).setMode(
+            AppOpsManager.OPSTR_MOCK_LOCATION, Process.myUid(), application.packageName, AppOpsManager.MODE_ERRORED)
+        val controller = launch()
+        controller.get().findViewById<Button>(R.id.startButton).performClick()
+        val dialog = ShadowDialog.getLatestDialog() as AlertDialog
+        assertTrue(dialog.isShowing)
+        assertEquals(controller.get().getString(R.string.open_settings_action), dialog.getButton(DialogInterface.BUTTON_POSITIVE).text.toString())
+        val intent = DeveloperSettings.mockLocationIntent()
+        assertEquals(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS, intent.action)
+        assertEquals("mock_location_app", intent.getStringExtra(DeveloperSettings.FRAGMENT_KEY))
+        assertEquals("mock_location_app", intent.getBundleExtra(DeveloperSettings.FRAGMENT_ARGUMENTS)?.getString(DeveloperSettings.FRAGMENT_KEY))
+        assertNull(shadowOf(application).nextStartedService)
+        controller.pause().stop().destroy()
+    }
+
+    @Test fun `choosing a saved favorite restores its point on the map`() {
+        PlaceLibrary(application).saveFavorite("Oficina", Coordinates(40.0, -3.0))
+        val controller = launch()
+        controller.get().findViewById<Button>(R.id.libraryButton).performClick()
+        val dialog = ShadowDialog.getLatestDialog()
+        val list = views(dialog.window!!.decorView).filterIsInstance<ListView>().single()
+        list.performItemClick(null, 0, 0)
+        assertEquals(Coordinates(40.0, -3.0), SimulationStore(application).selection())
+        assertEquals("Oficina", controller.get().findViewById<TextView>(R.id.placeTitle).text.toString())
+        controller.pause().stop().destroy()
+    }
+
+    @Test fun `route editor collects map points and survives recreation`() {
+        val controller = launch()
+        val activity = controller.get()
+        activity.findViewById<Button>(R.id.routesButton).performClick()
+        val dialog = ShadowDialog.getLatestDialog()
+        views(dialog.window!!.decorView).filterIsInstance<MaterialButton>()
+            .first { it.text.toString() == activity.getString(R.string.draw_route) }.performClick()
+        tap(activity, Coordinates(19.433, -99.132))
+        tap(activity, Coordinates(19.434, -99.131))
+        assertEquals(3, AppPreferences(application).route().points.size)
+        assertEquals(View.VISIBLE, activity.findViewById<View>(R.id.routeBanner).visibility)
         val saved = Bundle()
         controller.saveInstanceState(saved).pause().stop().destroy()
         val recreated = Robolectric.buildActivity(MainActivity::class.java).create(saved)
-        recreated.get().findViewById<MapView>(R.id.map).setUseDataConnection(false)
+        recreated.get().findViewById<WebView>(R.id.map).settings.blockNetworkLoads = true
         recreated.start().restoreInstanceState(saved).resume().visible()
-        assertFalse(MockLocationService.isRunning)
-        assertEquals(true, recreated.get().findViewById<Button>(R.id.stopButton).isEnabled)
+        assertEquals(3, AppPreferences(application).route().points.size)
+        assertEquals(View.VISIBLE, recreated.get().findViewById<View>(R.id.routeBanner).visibility)
         recreated.pause().stop().destroy()
     }
+
+    @Test fun `interrupted process offers cleanup instead of claiming it is active`() {
+        SimulationStore(application).apply { cleanupNeeded = true; writeStatus("Ubicación activa") }
+        val controller = launch()
+        assertEquals(controller.get().getString(R.string.simulation_interrupted), controller.get().findViewById<TextView>(R.id.statusText).text)
+        assertFalse(MockLocationService.isRunning)
+        assertEquals(View.VISIBLE, controller.get().findViewById<View>(R.id.stopButton).visibility)
+        controller.pause().stop().destroy()
+    }
+
+    @Test
+    @Config(sdk = [35], qualifiers = "w411dp-h891dp-xxhdpi")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun `primary controls fit a phone and produce a visual preview`() {
+        val controller = launch()
+        val activity = controller.get()
+        layout(activity, 1233, 2673)
+        val start = activity.findViewById<View>(R.id.startButton)
+        assertTrue(start.height >= 48 * activity.resources.displayMetrics.density)
+        assertTrue(activity.findViewById<View>(R.id.locationCard).height < activity.findViewById<View>(R.id.contentRoot).height * 0.65)
+        val decor = activity.window.decorView
+        val bitmap = Bitmap.createBitmap(decor.width, decor.height, Bitmap.Config.ARGB_8888)
+        decor.draw(Canvas(bitmap))
+        val directory = File("build/outputs/previews").apply { mkdirs() }
+        File(directory, "home-light.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        bitmap.recycle()
+        controller.pause().stop().destroy()
+    }
+
+    @Test
+    @Config(sdk = [35], qualifiers = "w800dp-h411dp-land-mdpi")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun `landscape places the location card beside the map controls`() {
+        val controller = launch()
+        val activity = controller.get()
+        layout(activity, 800, 411)
+        val search = activity.findViewById<View>(R.id.searchCard)
+        val card = activity.findViewById<View>(R.id.locationCard)
+        capture(activity, "home-landscape.png")
+        assertTrue("root=${activity.findViewById<View>(R.id.contentRoot).width}x${activity.findViewById<View>(R.id.contentRoot).height} search=${search.left}..${search.right} card=${card.left}..${card.right} density=${activity.resources.displayMetrics.density}", search.right < card.left)
+        assertTrue(card.bottom <= activity.findViewById<View>(R.id.contentRoot).height)
+        controller.pause().stop().destroy()
+    }
+
+    @Test
+    @Config(sdk = [35], qualifiers = "w411dp-h891dp-night-xxhdpi")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun `dark theme retains readable controls and a dark map source`() {
+        val controller = launch()
+        val activity = controller.get()
+        layout(activity, 1233, 2673)
+        val bridge = shadowOf(activity.findViewById<WebView>(R.id.map)).getJavascriptInterface(MapWorkspace.BRIDGE_NAME) as MapWorkspace.Bridge
+        assertTrue(org.json.JSONObject(bridge.initialState()).getString("style").endsWith("/dark"))
+        capture(activity, "home-dark.png")
+        controller.pause().stop().destroy()
+    }
+
+    private fun capture(activity: MainActivity, name: String) {
+        val decor = activity.window.decorView
+        val bitmap = Bitmap.createBitmap(decor.width, decor.height, Bitmap.Config.ARGB_8888)
+        decor.draw(Canvas(bitmap))
+        val directory = File("build/outputs/previews").apply { mkdirs() }
+        File(directory, name).outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        bitmap.recycle()
+    }
+
+    private fun tap(activity: MainActivity, point: Coordinates) {
+        val map = activity.findViewById<WebView>(R.id.map)
+        val bridge = shadowOf(map).getJavascriptInterface(MapWorkspace.BRIDGE_NAME) as MapWorkspace.Bridge
+        bridge.onSelect(point.latitude, point.longitude)
+    }
+
+    private fun views(view: View): List<View> = listOf(view) + if (view is ViewGroup)
+        (0 until view.childCount).flatMap { views(view.getChildAt(it)) } else emptyList()
 }

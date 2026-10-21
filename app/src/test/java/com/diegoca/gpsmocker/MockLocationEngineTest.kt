@@ -69,6 +69,12 @@ class MockLocationEngineTest {
         assertEquals(listOf(second), backend.locations)
     }
 
+    @Test fun `forwards altitude accuracy speed and bearing to the GPS backend`() {
+        val options = SimulationOptions(2250.0, 25f, 500)
+        engine.publish(second, options, 12f, 270f)
+        assertEquals(SimulatedFix(second, options, 12f, 270f), backend.lastFix)
+    }
+
     private class FakeBackend : MockLocationBackend {
         val events = mutableListOf<String>()
         val locations = mutableListOf<Coordinates>()
@@ -76,13 +82,15 @@ class MockLocationEngineTest {
         var failEnable = false
         var failPublish = false
         var failRemove = false
+        var lastFix: SimulatedFix? = null
 
         override fun install() { events += "install"; if (failInstall) throw SecurityException() }
         override fun enable() { events += "enable"; if (failEnable) throw SecurityException() }
-        override fun publish(coordinates: Coordinates) {
+        override fun publish(fix: SimulatedFix) {
             events += "publish"
             if (failPublish) throw SecurityException()
-            locations += coordinates
+            lastFix = fix
+            locations += fix.coordinates
         }
         override fun remove() { events += "remove"; if (failRemove) throw SecurityException() }
     }

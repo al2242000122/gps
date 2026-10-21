@@ -30,4 +30,12 @@ class SimulationStore(context: Context) {
             .putString("longitude", coordinates.longitude.toString())
             .apply()
     }
+
+    var selectionName: String
+        get() = preferences.getString("selection_name", "Punto seleccionado") ?: "Punto seleccionado"
+        set(value) { preferences.edit().putString("selection_name", value.take(200)).apply() }
+
+    var selectionAddress: String
+        get() = preferences.getString("selection_address", "").orEmpty()
+        set(value) { preferences.edit().putString("selection_address", value.take(500)).apply() }
 }

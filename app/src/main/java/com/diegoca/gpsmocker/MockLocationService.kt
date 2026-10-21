@@ -8,17 +8,27 @@ import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.location.LocationManager
-import android.os.Build
-import android.os.Handler
-import android.os.IBinder
-import android.os.Looper
-import android.os.PowerManager
+import android.os.*
 
-class MockLocationService : Service() {
+data class SimulationSnapshot(
+    val coordinates: Coordinates,
+    val routePoints: List<Coordinates> = emptyList(),
+    val paused: Boolean = false,
+    val completed: Boolean = false,
+    val fraction: Double = 0.0,
+    val speedKmh: Double = 0.0
+)
+
+open class MockLocationService : Service() {
     private lateinit var engine: MockLocationEngine
     private lateinit var store: SimulationStore
     private val handler = Handler(Looper.getMainLooper())
     private var coordinates: Coordinates? = null
+    private var navigator: RouteNavigator? = null
+    private var options = SimulationOptions()
+    private var paused = false
+    private var lastTick = 0L
+    private var lastNotification = 0L
     private var shuttingDown = false
     private val wakeLock by lazy {
         getSystemService(PowerManager::class.java).newWakeLock(
@@ -28,68 +38,119 @@ class MockLocationService : Service() {
 
     private val tick = object : Runnable {
         override fun run() {
-            val target = coordinates ?: return
+            if (!isRunning) return
             try {
-                engine.publish(target)
-                wakeLock.acquire(UPDATE_INTERVAL_MS * 10)
-                handler.postDelayed(this, UPDATE_INTERVAL_MS)
-            } catch (error: Exception) {
-                fail(error)
-            }
+                publishPosition(advance = true)
+                handler.postDelayed(this, options.intervalMillis)
+            } catch (error: Exception) { fail(error) }
         }
     }
 
     override fun onCreate() {
         super.onCreate()
         store = SimulationStore(this)
-        engine = MockLocationEngine(AndroidMockLocationBackend(getSystemService(LocationManager::class.java)))
+        engine = MockLocationEngine(createBackend())
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL_ID, getString(R.string.notification_channel), NotificationManager.IMPORTANCE_LOW)
         )
     }
 
+    protected open fun createBackend(): MockLocationBackend =
+        AndroidMockLocationBackend(getSystemService(LocationManager::class.java))
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_STOP -> finishSimulation(getString(R.string.location_stopped), false)
-            ACTION_START -> {
-                val target = Coordinates.from(
-                    intent.getDoubleExtra(EXTRA_LATITUDE, Double.NaN),
-                    intent.getDoubleExtra(EXTRA_LONGITUDE, Double.NaN)
-                )
-                if (target == null) {
-                    finishSimulation(getString(R.string.invalid_coordinates), true)
-                    return START_NOT_STICKY
+        try {
+            when (intent?.action) {
+                ACTION_STOP -> finishSimulation(getString(R.string.location_stopped), false)
+                ACTION_START, ACTION_START_ROUTE -> startSimulation(intent)
+                ACTION_TOGGLE_PAUSE -> {
+                    if (isRunning && navigator?.completed == false) {
+                        // Account for the final moving interval before freezing the route.
+                        if (!paused) publishPosition(advance = true)
+                        paused = !paused
+                        lastTick = SystemClock.elapsedRealtime()
+                        publishPosition(advance = false)
+                        showForeground()
+                        store.writeStatus(statusMessage())
+                    } else if (!isRunning) stopSelf()
                 }
-                try {
-                    if (!MockPermissions.hasLocation(this) || !MockPermissions.isMockApp(this)) {
-                        throw SecurityException(getString(R.string.permission_or_mock_error))
-                    }
-                    check(MockPermissions.locationEnabled(this)) { getString(R.string.enable_location) }
-                    val notification = notification(target)
-                    if (Build.VERSION.SDK_INT >= 29) {
-                        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
-                    } else {
-                        startForeground(NOTIFICATION_ID, notification)
-                    }
-                    handler.removeCallbacks(tick)
-                    // Persist ownership before touching GPS, including partial setup failures.
-                    store.cleanupNeeded = true
-                    engine.publish(target)
-                    wakeLock.acquire(UPDATE_INTERVAL_MS * 10)
-                    coordinates = target
-                    isRunning = true
-                    store.saveSelection(target)
-                    store.writeStatus(getString(R.string.location_active, target.latitude, target.longitude))
-                    broadcastStatus()
-                    handler.postDelayed(tick, UPDATE_INTERVAL_MS)
-                } catch (error: Exception) {
-                    fail(error)
+                ACTION_OPTIONS -> {
+                    if (isRunning) {
+                        options = AppPreferences(this).options()
+                        handler.removeCallbacks(tick)
+                        tick.run()
+                    } else stopSelf()
                 }
+                else -> if (!isRunning) stopSelf()
             }
-            else -> if (!isRunning) stopSelf()
-        }
-        // Never restart a simulation silently after Android kills the process.
+        } catch (error: Exception) { fail(error) }
         return START_NOT_STICKY
+    }
+
+    private fun startSimulation(intent: Intent) {
+        if (!MockPermissions.hasLocation(this) || !MockPermissions.isMockApp(this)) {
+            throw SecurityException(getString(R.string.permission_or_mock_error))
+        }
+        check(MockPermissions.locationEnabled(this)) { getString(R.string.enable_location) }
+        options = AppPreferences(this).options()
+        val route = if (intent.action == ACTION_START_ROUTE) AppPreferences(this).route() else null
+        val newNavigator = route?.let { RouteNavigator(it.points, it.speedKmh, it.loop) }
+        val target = newNavigator?.position() ?: Coordinates.from(
+            intent.getDoubleExtra(EXTRA_LATITUDE, Double.NaN), intent.getDoubleExtra(EXTRA_LONGITUDE, Double.NaN)
+        ) ?: throw IllegalArgumentException(getString(R.string.invalid_coordinates))
+        handler.removeCallbacks(tick)
+        navigator = newNavigator
+        coordinates = target
+        paused = false
+        lastTick = SystemClock.elapsedRealtime()
+        showForeground()
+        store.cleanupNeeded = true
+        // Publish before announcing success, including validation of provider access.
+        publishPosition(advance = false)
+        isRunning = true
+        store.writeStatus(statusMessage())
+        val name = if (route != null) getString(R.string.route_history_name) else store.selectionName
+        PlaceLibrary(this).record(name, target)
+        broadcastStatus()
+        handler.postDelayed(tick, options.intervalMillis)
+    }
+
+    private fun publishPosition(advance: Boolean) {
+        val now = SystemClock.elapsedRealtime()
+        val route = navigator
+        val wasCompleted = route?.completed == true
+        if (advance && !paused && route != null) {
+            coordinates = route.advance(((now - lastTick).coerceAtLeast(0)) / 1000.0)
+        }
+        lastTick = now
+        val point = coordinates ?: return
+        val moving = route != null && !paused && !route.completed
+        engine.publish(point, options, if (moving) (route!!.speedKmh / 3.6).toFloat() else 0f,
+            if (moving) route!!.bearing() else 0f)
+        wakeLock.acquire((options.intervalMillis * 3).coerceAtLeast(10000))
+        snapshot = SimulationSnapshot(point, route?.points.orEmpty(), paused, route?.completed == true,
+            route?.fraction ?: 0.0, if (moving) route!!.speedKmh else 0.0)
+        if (route?.completed == true && !wasCompleted) store.writeStatus(statusMessage())
+        if (now - lastNotification >= 5000 || route?.completed == true && !wasCompleted) showForeground()
+        broadcastStatus()
+    }
+
+    private fun statusMessage(): String {
+        val route = navigator
+        return when {
+            route?.completed == true -> getString(R.string.route_completed)
+            paused -> getString(R.string.route_paused)
+            route != null -> getString(R.string.route_running)
+            else -> coordinates?.let { getString(R.string.location_active, it.latitude, it.longitude) }
+                ?: getString(R.string.initial_status)
+        }
+    }
+
+    private fun showForeground() {
+        val notification = notification()
+        if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+        else startForeground(NOTIFICATION_ID, notification)
+        lastNotification = SystemClock.elapsedRealtime()
     }
 
     private fun fail(error: Exception) {
@@ -101,16 +162,16 @@ class MockLocationService : Service() {
     private fun finishSimulation(message: String, error: Boolean) {
         handler.removeCallbacks(tick)
         coordinates = null
+        navigator = null
+        snapshot = null
         isRunning = false
         if (wakeLock.isHeld) wakeLock.release()
         val cleanupError = runCatching {
-            // Run even in a newly created service to recover a previous process's provider.
             if (engine.installed || store.cleanupNeeded) engine.stop()
             store.cleanupNeeded = false
         }.exceptionOrNull()
-        if (cleanupError == null) {
-            store.writeStatus(message, error)
-        } else {
+        if (cleanupError == null) store.writeStatus(message, error)
+        else {
             store.cleanupNeeded = true
             store.writeStatus(getString(R.string.cleanup_failed), true)
         }
@@ -120,35 +181,30 @@ class MockLocationService : Service() {
         stopSelf()
     }
 
-    private fun notification(target: Coordinates): Notification {
-        val open = PendingIntent.getActivity(
-            this, 1, Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val stop = PendingIntent.getService(
-            this, 2, Intent(this, MockLocationService::class.java).setAction(ACTION_STOP),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        return Notification.Builder(this, CHANNEL_ID)
+    private fun notification(): Notification {
+        fun pending(action: String, id: Int) = PendingIntent.getService(this, id,
+            Intent(this, MockLocationService::class.java).setAction(action),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val open = PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val builder = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_location)
             .setContentTitle(getString(R.string.notification_title))
-            .setContentText(getString(R.string.location_active, target.latitude, target.longitude))
-            .setContentIntent(open)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setCategory(Notification.CATEGORY_SERVICE)
-            .addAction(Notification.Action.Builder(null, getString(R.string.stop), stop).build())
-            .build()
+            .setContentText(statusMessage())
+            .setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true).setCategory(Notification.CATEGORY_SERVICE)
+        if (navigator?.completed == false) builder.addAction(Notification.Action.Builder(null,
+            getString(if (paused) R.string.resume else R.string.pause), pending(ACTION_TOGGLE_PAUSE, 3)).build())
+        builder.addAction(Notification.Action.Builder(null, getString(R.string.stop), pending(ACTION_STOP, 2)).build())
+        return builder.build()
     }
 
-    private fun broadcastStatus() {
-        sendBroadcast(Intent(ACTION_STATUS).setPackage(packageName))
-    }
+    private fun broadcastStatus() { sendBroadcast(Intent(ACTION_STATUS).setPackage(packageName)) }
 
     override fun onDestroy() {
         handler.removeCallbacks(tick)
         if (wakeLock.isHeld) wakeLock.release()
         isRunning = false
+        snapshot = null
         if (!shuttingDown && store.cleanupNeeded) {
             val restored = runCatching { engine.stop() }.isSuccess
             store.cleanupNeeded = !restored
@@ -162,15 +218,18 @@ class MockLocationService : Service() {
 
     companion object {
         const val ACTION_START = "com.diegoca.gpsmocker.START"
+        const val ACTION_START_ROUTE = "com.diegoca.gpsmocker.START_ROUTE"
         const val ACTION_STOP = "com.diegoca.gpsmocker.STOP"
+        const val ACTION_TOGGLE_PAUSE = "com.diegoca.gpsmocker.TOGGLE_PAUSE"
+        const val ACTION_OPTIONS = "com.diegoca.gpsmocker.OPTIONS"
         const val ACTION_STATUS = "com.diegoca.gpsmocker.STATUS"
         const val EXTRA_LATITUDE = "latitude"
         const val EXTRA_LONGITUDE = "longitude"
         private const val CHANNEL_ID = "gps_simulation"
         private const val NOTIFICATION_ID = 1
-        private const val UPDATE_INTERVAL_MS = 1000L
-
-        @Volatile var isRunning: Boolean = false
+        @Volatile var isRunning = false
+            private set
+        @Volatile var snapshot: SimulationSnapshot? = null
             private set
     }
 }

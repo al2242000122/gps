@@ -1,68 +1,72 @@
 # GPS Mocker Android
 
-Aplicación Android en Kotlin para seleccionar un punto en un mapa y simular su ubicación durante pruebas de desarrollo. No requiere root ni una clave de Google Maps.
+App Android en Kotlin para seleccionar puntos en un mapa y simular ubicaciones durante pruebas de desarrollo. Android 8.0 o superior; sin root ni clave de Google Maps.
 
-## Requisitos
+## Versión 0.3
 
-- Android Studio con JDK 17 o superior.
-- Android SDK Platform 35 y Build Tools 35.0.0.
-- Un dispositivo o emulador con Android 8.0 o superior.
+- Mapa vectorial a pantalla completa con MapLibre y OpenFreeMap, capas clara y oscura, controles flotantes y tarjeta inferior Material Design 3.
+- Latitud y longitud de **solo lectura**: selecciona tocando el mapa, arrastrando el marcador o recuperando un lugar del buscador, favoritos o historial. Puedes copiar las coordenadas y compartir un enlace a OpenStreetMap.
+- Búsqueda de ciudades, lugares y direcciones mediante el servicio de geocodificación de Android. También muestra la dirección del punto cuando el servicio está disponible.
+- Favoritos con nombre, edición y eliminación; historial de las últimas 50 ubicaciones utilizadas.
+- Editor de rutas: añade puntos en el mapa, arrastra sus marcadores, deshaz el último punto y configura velocidad entre 0,5 y 300 km/h. Las rutas grandes muestran los marcadores de sus extremos para mantener el mapa fluido.
+- Rutas con pausa, reanudación, progreso y repetición. La repetición incluye un segmento de regreso al inicio para evitar saltos. Al finalizar una ruta se mantiene la posición final hasta que pulses Detener.
+- Importación y exportación GPX mediante el selector de archivos de Android, sin permisos de almacenamiento general. Hasta 2000 puntos y 2 MB por archivo; admite tracks, rutas y waypoints.
+- Opciones de altitud (−1000 a 50 000 m), precisión (1–1000 m) e intervalo de actualización (250 ms a 10 s). Los cambios se aplican a la simulación activa sin reiniciar el recorrido.
+- Servicio en primer plano con notificación, pausa/reanudación de rutas y acción para detener. Si la restauración del GPS falla, muestra el error y permite reintentar.
+- Acceso a las opciones de desarrollador con argumentos para desplazar y resaltar **Seleccionar aplicación de ubicación simulada**, en sistemas que admiten esa función.
+- Tema claro/oscuro siguiendo el sistema, colores Material You opcionales desde Android 12 y disposición adaptada a orientación horizontal.
 
-## Instalar desde el celular con GitHub Actions
+## Instalar desde el celular
 
-1. Sube estos archivos a tu repositorio de GitHub, incluida la carpeta `.github/workflows`.
-2. En GitHub abre **Actions → Compilar APK Android**. Habilita Actions si GitHub lo solicita.
-3. Cada push a `main` o a una rama `feat/…` ejecuta las pruebas, lint y la compilación. También puedes usar **Run workflow** en la rama que contenga el workflow; para verlo en la lista, el archivo debe existir en la rama predeterminada.
-4. Abre una ejecución que termine en verde. En **Artifacts**, descarga `gps-mocker-debug-N` (necesitas iniciar sesión en GitHub).
-5. Extrae el ZIP en tu teléfono e instala `app-debug.apk`. Si Android lo solicita, permite instalar aplicaciones desde el navegador o gestor de archivos que estés usando.
+1. En GitHub abre **Actions → Compilar APK Android** y elige una ejecución terminada en verde de la rama correspondiente.
+2. En **Artifacts**, descarga `gps-mocker-debug-N`; necesitas iniciar sesión en GitHub.
+3. Extrae el ZIP e instala `app-debug.apk`. Si Android lo solicita, permite instalar aplicaciones desde el navegador o gestor de archivos utilizado.
+4. En las opciones de desarrollador, elige **GPS Mocker** como **Aplicación de ubicación simulada**. La app ofrece una guía y un acceso directo que intenta llevarte a esa opción. Algunos fabricantes ignoran el desplazamiento solicitado: en ese caso búscala manualmente dentro de Opciones de desarrollador.
+5. Activa la ubicación del teléfono y concede el permiso de ubicación al iniciar. La ubicación aproximada es suficiente para el servicio.
+6. Toca el mapa o busca un lugar. **Comenzar** aplica la selección; mover el marcador por sí solo no cambia una simulación ya iniciada. Pulsa **Actualizar** para aplicar el nuevo punto.
+7. Usa **Detener** en la app o en la notificación para restaurar el proveedor GPS.
 
-El APK es de prueba, no una versión firmada para Google Play. Distintas computadoras o ejecuciones pueden usar certificados de depuración diferentes: si Android rechaza una actualización por firma incompatible, desinstala la versión anterior y vuelve a instalar; se perderán sus datos locales. Los artefactos de APK se conservan durante 14 días.
+El APK tiene firma de depuración. Distintos equipos o ejecuciones de CI pueden producir firmas diferentes. Si Android rechaza la actualización por firma incompatible, desinstala la versión de prueba anterior; se eliminarán sus datos locales. Para distribuir actualizaciones permanentes se debe configurar una firma estable de publicación.
 
-## Primer uso
+## Usar las rutas
 
-1. Activa las opciones de desarrollador del teléfono (normalmente pulsando siete veces **Número de compilación** en los ajustes del dispositivo).
-2. En **Seleccionar aplicación de ubicación simulada**, elige **GPS Mocker**. Hay un acceso directo dentro de la app.
-3. Activa la ubicación del teléfono. Toca el mapa para colocar el marcador o mantenlo pulsado para arrastrarlo. También puedes escribir latitud y longitud; se aceptan punto y coma decimal.
-4. Pulsa **Iniciar / actualizar ubicación** y concede el permiso de ubicación. La ubicación aproximada también es suficiente para el servicio. En Android 13 o superior puedes permitir notificaciones para tener el botón de detener visible.
-5. La posición se vuelve a publicar cada segundo. Al mover el marcador, pulsa otra vez **Iniciar / actualizar ubicación** para aplicar el nuevo destino.
-6. Para finalizar, pulsa **Detener simulación** en la app o en su notificación.
+1. Abre **Rutas → Dibujar en el mapa**. El punto seleccionado será el primer punto.
+2. Toca el mapa para añadir puntos y arrastra los marcadores para ajustarlos. El botón de deshacer elimina el último punto.
+3. Pulsa el botón de terminar edición, elige velocidad y repetición y pulsa **Iniciar ruta**.
+4. Puedes pausar y reanudar desde la tarjeta o la notificación. Durante una pausa se siguen enviando posiciones estáticas con velocidad cero.
+5. Para importar o exportar, usa **Rutas → Importar GPX / Exportar GPX**. Un archivo inválido no sustituye la ruta guardada. Exportar conserva las coordenadas, no los ajustes de velocidad ni la altitud global.
 
-El servicio mantiene la simulación al cambiar de aplicación. Se utiliza un bloqueo de CPU con vencimiento corto, renovado mientras la simulación está activa, para continuar las actualizaciones con la pantalla apagada. Android y las restricciones de batería del fabricante pueden interrumpir un servicio; la app no promete ejecución indefinida. Si el proceso se interrumpe, la siguiente apertura ofrece restaurar el proveedor GPS. No se reinicia automáticamente una simulación después de que Android mate el proceso.
+Los puntos se unen por segmentos geográficos directos, no por un motor de navegación vial. Para seguir una calle añade puntos a lo largo de ella o importa un recorrido. Los segmentos de varios tracks de un mismo archivo se concatenan; divide previamente el archivo si no quieres conectarlos.
 
-Si se revoca la selección como app de ubicación simulada antes de detenerla, la restauración puede fallar. La app muestra el error, permite reintentar y no anuncia falsamente que el GPS se restauró. Vuelve a seleccionar GPS Mocker y pulsa Detener.
+## Favoritos, historial y búsqueda
 
-## Alcance de la versión 0.2
+- La estrella guarda o cambia el nombre del punto seleccionado.
+- **Guardados** contiene las pestañas Favoritos e Historial. Mantén pulsado un favorito para renombrarlo o eliminarlo. Borrar el historial conserva los favoritos.
+- Se registra una ubicación en el historial cuando una simulación comienza correctamente, no con cada movimiento del mapa.
+- La búsqueda requiere conexión y un proveedor de geocodificación disponible en el teléfono. Algunos dispositivos sin ese servicio no pueden buscar direcciones; el mapa, las coordenadas, los favoritos y la simulación siguen funcionando. La app indica el problema en la búsqueda.
 
-- Mapa OpenStreetMap con osmdroid, zoom, selección por toque y marcador arrastrable.
-- Entrada manual validada, con persistencia de la última selección y recuperación de la vista al girar la pantalla.
-- Simulación continua del proveedor GPS mediante `LocationManager` y servicio en primer plano de tipo `location`.
-- Notificación persistente con acción para detener y restauración explícita del proveedor real.
-- Comprobación de selección como app de ubicación simulada y permisos en tiempo de ejecución.
-- Compilación automática, pruebas unitarias y Android Lint mediante GitHub Actions.
+## Compilación y verificación
 
-El mapa descarga teselas de `tile.openstreetmap.org` por HTTPS, con identificación de la app y caché local. No incluye descargas masivas ni mapas sin conexión completos. Consulta la [política de uso de teselas](https://operations.osmfoundation.org/policies/tiles/); para una distribución con mucho tráfico se debe elegir un proveedor adecuado. La atribución y el enlace a OpenStreetMap permanecen visibles junto al mapa. El proveedor de mapas recibe las solicitudes necesarias para cargar las zonas que visualizas.
-
-Android marca estas posiciones como simuladas. No hay mecanismos para ocultarlas ni evadir controles de otras aplicaciones. Se simula el proveedor GPS; una app que use otras fuentes, posiciones almacenadas o detección de simulación puede mostrar un resultado diferente.
-
-La búsqueda de direcciones, rutas, favoritos, anuncios y compras no forman parte de esta versión.
-
-## Compilación
+Requisitos: Android Studio/JDK 17 o superior, Android SDK Platform 35 y Build Tools 35.0.0. Abre el proyecto en Android Studio, o configura `sdk.dir` en `local.properties` usando `local.properties.example` como referencia.
 
 ```bash
 ./gradlew testDebugUnitTest lintDebug assembleDebug
 ```
 
-El APK se genera en `app/build/outputs/apk/debug/app-debug.apk`.
+APK: `app/build/outputs/apk/debug/app-debug.apk`.
 
-Abre el proyecto en Android Studio y configura el SDK, o copia `local.properties.example` a `local.properties` y ajusta `sdk.dir`. El repositorio incluye el wrapper de Gradle; no hace falta instalar Gradle por separado.
+GitHub Actions ejecuta esa misma verificación en pushes a `main` y ramas `feat/…`, y en pull requests a `main`. Conserva los APK 14 días y los informes 7 días. También permite ejecución manual cuando el workflow está presente en la rama predeterminada. Los informes incluyen vistas previas de los controles nativos; las pruebas de pantalla bloquean las descargas del mapa para no depender de servidores externos.
 
-## Verificación en un teléfono
+Las pruebas cubren validación numérica, persistencia, GPX inválidos y con declaraciones externas, rutas, pausa/reanudación, fin del recorrido, fallo de restauración del GPS y controles de pantalla en Android 9 y 15. La comprobación final del GPS y de las restricciones de batería debe hacerse en un teléfono real.
 
-1. Comprueba que la app aparece en el selector de ubicación simulada.
-2. Toca dos puntos distintos, arrastra el marcador y verifica que cambien las coordenadas. Comprueba también la entrada manual con coma decimal y los valores fuera de rango.
-3. Inicia y comprueba las coordenadas desde una app de prueba que solicite actualizaciones del proveedor GPS.
-4. Cambia de aplicación, gira la pantalla y apaga la pantalla durante al menos un minuto. Verifica después que las actualizaciones continúan y conservan el destino.
-5. Cambia el punto y vuelve a pulsar Iniciar; confirma que se aplica el nuevo destino.
-6. Detén desde la notificación y desde la app; confirma que vuelven las posiciones reales. La primera posición real puede tardar en llegar.
-7. Prueba permisos denegados, notificaciones denegadas, pérdida de red del mapa y revocación de la selección como app de ubicación simulada. Una pérdida de red del mapa no debe detener una simulación ya iniciada.
-8. Interrumpe el proceso y vuelve a abrir. No debe indicar que la simulación sigue activa; usa Detener para restaurar el proveedor si quedó pendiente.
+## Diseño y proveedores
+
+El rediseño aplica [mobile-android-design](https://skills.sh/wshobson/agents/mobile-android-design), de `wshobson/agents`, encontrada con el flujo de [find-skills](https://github.com/vercel-labs/skills/tree/main/skills/find-skills). Se aplican sus pautas de Material Design 3 mediante Material Components para Android. Consulta [las decisiones de diseño](docs/DESIGN.md).
+
+El componente de mapa utiliza MapLibre GL JS 4.7.1 dentro del WebView del sistema. Su JavaScript, CSS y licencia BSD se incluyen en el APK, con la integridad del paquete original verificada; no se descarga código del motor en cada inicio. Necesita una versión de Android System WebView con WebGL. El componente solo expone selección de puntos y estado de la cámara a la app; los controles, permisos y simulación se implementan en Kotlin.
+
+La cartografía se descarga por HTTPS desde [OpenFreeMap](https://openfreemap.org), con atribución a OpenFreeMap, OpenMapTiles y OpenStreetMap, identificación de la app y caché del WebView. Los proveedores reciben las solicitudes necesarias para mostrar el área del mapa; el servicio de Android procesa las búsquedas y consultas de direcciones. No hay descarga masiva ni mapas completos sin conexión. Si el mapa no carga, se ofrece reintentar y comprobar la conexión o actualizar Android System WebView.
+
+Android identifica las posiciones como simuladas. Se publica en el proveedor GPS mediante `LocationManager`; otras apps pueden utilizar fuentes distintas, posiciones almacenadas o rechazar ubicaciones simuladas. No se oculta esa marca.
+
+El servicio mantiene actualizaciones al cambiar de app y utiliza un bloqueo de CPU con vencimiento corto mientras está activo. Android o el fabricante pueden interrumpirlo; no se reinicia silenciosamente después de que el proceso muera. Al abrir de nuevo se ofrece recuperar el proveedor pendiente. Si se revoca la selección como app de ubicación simulada antes de detener, vuelve a elegir GPS Mocker y pulsa Detener para reintentar la restauración.

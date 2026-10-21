@@ -40,14 +40,14 @@ class AndroidMockLocationBackend(private val manager: LocationManager) : MockLoc
         manager.setTestProviderEnabled(LocationManager.GPS_PROVIDER, true)
     }
 
-    override fun publish(coordinates: Coordinates) {
+    override fun publish(fix: SimulatedFix) {
         val location = Location(LocationManager.GPS_PROVIDER).apply {
-            latitude = coordinates.latitude
-            longitude = coordinates.longitude
-            altitude = 0.0
-            accuracy = 3f
-            speed = 0f
-            bearing = 0f
+            latitude = fix.coordinates.latitude
+            longitude = fix.coordinates.longitude
+            altitude = fix.options.altitudeMeters
+            accuracy = fix.options.accuracyMeters
+            speed = fix.speedMetersPerSecond
+            bearing = fix.bearingDegrees
             time = System.currentTimeMillis()
             elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
         }
