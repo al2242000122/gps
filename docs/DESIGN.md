@@ -7,6 +7,7 @@ Guía aplicada: [mobile-android-design](https://github.com/wshobson/agents/tree/
 ## Estructura visual
 
 - El mapa ocupa toda la pantalla. MapLibre y la cartografía vectorial de OpenFreeMap reemplazan las teselas estándar, con zoom suave y estilos Liberty y Dark.
+- Desde 0.3.1 el mapa usa Liberty claro por defecto independientemente del tema del teléfono. El WebView no vuelve a oscurecer el lienzo; la elección explícita de otro estilo se conserva.
 - El buscador superior es una superficie flotante con identidad discreta y acceso a ajustes. Buscar un lugar lleva su selección al mapa.
 - La tarjeta inferior presenta estado, nombre/dirección, coordenadas de solo lectura y la acción principal. Los campos editables de latitud y longitud se eliminan.
 - El botón principal azul destaca Comenzar, Actualizar o Iniciar ruta según el contexto. Detener y Pausar aparecen cuando son relevantes.
@@ -25,6 +26,7 @@ Guía aplicada: [mobile-android-design](https://github.com/wshobson/agents/tree/
 ## Interacción y estado
 
 - Elegir un punto no inicia una simulación automáticamente. Comenzar/Actualizar confirma la intención.
+- Al abrir se centra una ubicación real reciente, con permiso del usuario y sin iniciar la simulación. Mientras se busca se muestra el estado y se evita confundir un punto simulado con la posición real. Elegir otro punto cancela la búsqueda; un fallo conserva la selección anterior. El centrado no modifica una ruta guardada ni reinicia una simulación activa.
 - Favoritos e historial conservan ubicaciones reutilizables; una importación inválida no destruye la ruta previa.
 - La velocidad depende del tiempo transcurrido. Pausar conserva la posición; reanudar no acumula el tiempo pausado. Completar mantiene el destino hasta Detener.
 - Selección, nombre, dirección, favoritos, historial, ruta y ajustes se guardan localmente. La vista del mapa y el modo de edición sobreviven a la recreación de la pantalla.

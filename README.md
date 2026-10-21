@@ -2,7 +2,11 @@
 
 App Android en Kotlin para seleccionar puntos en un mapa y simular ubicaciones durante pruebas de desarrollo. Android 8.0 o superior; sin root ni clave de Google Maps.
 
-## Versión 0.3
+## Versión 0.3.1
+
+- Al abrir, busca una ubicación real reciente y centra el mapa sin comenzar la simulación. El botón de centrar permite reintentar. Solicita permiso de ubicación; admite ubicación aproximada. Si no hay permiso, señal o GPS activo, conserva la selección anterior e indica cómo continuar.
+- El mapa comienza con estilo claro, incluso con el teléfono en modo oscuro. Se desactiva el oscurecimiento automático del WebView para mantener legibles calles y etiquetas. El selector de capas permite elegir otro estilo; las instalaciones anteriores con el ajuste automático pasan una sola vez al mapa claro.
+- Descarta posiciones simuladas y posiciones almacenadas de hace más de 30 segundos. La búsqueda se cancela al elegir otro punto o salir de la pantalla y tiene un límite de 15 segundos. Una simulación activa conserva su posición; para obtener la ubicación real hay que detenerla primero. Las rutas guardadas se conservan al centrar la ubicación actual.
 
 - Mapa vectorial a pantalla completa con MapLibre y OpenFreeMap, capas clara y oscura, controles flotantes y tarjeta inferior Material Design 3.
 - Latitud y longitud de **solo lectura**: selecciona tocando el mapa, arrastrando el marcador o recuperando un lugar del buscador, favoritos o historial. Puedes copiar las coordenadas y compartir un enlace a OpenStreetMap.

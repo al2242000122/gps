@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.res.Configuration
 import android.os.Bundle
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.webkit.JavascriptInterface
@@ -13,6 +14,8 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.webkit.WebViewAssetLoader
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewFeature
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -31,7 +34,7 @@ class MapWorkspace(
     private var active: Coordinates? = null
     private var points = emptyList<Coordinates>()
     private var editing = false
-    private var style = styleFor(context, "auto")
+    private var style = styleFor(context, "light")
     private var center = Coordinates.DEFAULT
     private var zoom = 15.0
     private var cameraCommand: JSONObject? = null
@@ -41,17 +44,25 @@ class MapWorkspace(
     init { configure() }
 
     @SuppressLint("SetJavaScriptEnabled")
+    @Suppress("DEPRECATION")
     private fun configure() {
         val loader = WebViewAssetLoader.Builder().addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context)).build()
         map.setBackgroundColor(context.getColor(R.color.surface_soft))
+        if (Build.VERSION.SDK_INT >= 29) map.isForceDarkAllowed = false
         map.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
             allowFileAccess = false
             allowContentAccess = false
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            userAgentString = "$userAgentString GPSMocker/0.3.0 (+https://github.com/al2242000122/gps)"
+            userAgentString = "$userAgentString GPSMocker/0.3.1 (+https://github.com/al2242000122/gps)"
         }
+        // MapLibre supplies its own light/dark palette. WebView must not recolor the canvas.
+        if (Build.VERSION.SDK_INT >= 33) map.settings.isAlgorithmicDarkeningAllowed = false
+        else if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING))
+            WebSettingsCompat.setAlgorithmicDarkeningAllowed(map.settings, false)
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.FORCE_DARK))
+            WebSettingsCompat.setForceDark(map.settings, WebSettingsCompat.FORCE_DARK_OFF)
         map.addJavascriptInterface(Bridge(), BRIDGE_NAME)
         map.webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest): WebResourceResponse? = loader.shouldInterceptRequest(request.url)

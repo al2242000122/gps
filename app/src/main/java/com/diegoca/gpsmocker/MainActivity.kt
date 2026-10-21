@@ -36,6 +36,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var sheets: AppSheets
     private lateinit var lookup: PlaceLookup
     private lateinit var workspace: MapWorkspace
+    private lateinit var deviceLocation: DeviceLocation
     private lateinit var root: View
     private lateinit var map: WebView
     private var selected = Coordinates.DEFAULT
@@ -50,6 +51,8 @@ class MainActivity : AppCompatActivity() {
     private var exportPoints: List<Coordinates> = emptyList()
     private var bars = Insets.NONE
     private var receiverRegistered = false
+    private var locateOnResume = true
+    private var pendingCurrentLocation = false
     private val io = Executors.newSingleThreadExecutor()
 
     private val receiver = object : BroadcastReceiver() {
@@ -107,6 +110,7 @@ class MainActivity : AppCompatActivity() {
         library = PlaceLibrary(this)
         sheets = AppSheets(this)
         lookup = PlaceLookup(this)
+        deviceLocation = DeviceLocation(this)
         setContentView(R.layout.activity_main)
         root = findViewById(R.id.contentRoot)
         map = findViewById(R.id.map)
@@ -120,6 +124,7 @@ class MainActivity : AppCompatActivity() {
         exportPoints = savedInstanceState?.getDoubleArray("exportPoints")?.toList()?.chunked(2)?.mapNotNull {
             if (it.size == 2) Coordinates.from(it[0], it[1]) else null
         }.orEmpty()
+        locateOnResume = savedInstanceState?.getBoolean("locateOnResume", false) ?: true
         workspace = MapWorkspace(this, map, ::mapSelected, onMoveRoutePoint = { index, point ->
             val points = routeDraft.points.toMutableList()
             if (index in points.indices) {
@@ -132,6 +137,7 @@ class MainActivity : AppCompatActivity() {
         applyMapStyle()
         workspace.restore(savedInstanceState, selected)
         select(selected, center = false, name = selectedName, address = store.selectionAddress, reverse = false)
+        pendingCurrentLocation = savedInstanceState?.getBoolean("pendingCurrentLocation", false) ?: false
         bindActions()
         findViewById<TextView>(R.id.attributionText).apply {
             text = Html.fromHtml("© <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> · <a href=\"https://openmaptiles.org\">OpenMapTiles</a> · <a href=\"https://openfreemap.org\">OpenFreeMap</a>", Html.FROM_HTML_MODE_LEGACY)
@@ -187,7 +193,9 @@ class MainActivity : AppCompatActivity() {
             sheets.mapAppearance(preferences.mapStyle) { preferences.mapStyle = it; applyMapStyle() }
         }
         findViewById<View>(R.id.centerButton).setOnClickListener {
-            workspace.center(MockLocationService.snapshot?.coordinates ?: selected)
+            val active = MockLocationService.snapshot
+            if (MockLocationService.isRunning && active != null) workspace.center(active.coordinates)
+            else locateDevice()
         }
         findViewById<View>(R.id.startButton).setOnClickListener { requestSimulation(routeMode) }
         findViewById<View>(R.id.stopButton).setOnClickListener { sendService(MockLocationService.ACTION_STOP) }
@@ -212,6 +220,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun select(point: Coordinates, center: Boolean, name: String = getString(R.string.selected_point), address: String = "", reverse: Boolean = true) {
+        cancelDeviceLocation()
         selected = point
         selectedName = name
         selectedAddress = address
@@ -259,6 +268,7 @@ class MainActivity : AppCompatActivity() {
     private fun saveDraft(draft: RouteDraft) { routeDraft = draft; preferences.saveRoute(draft) }
 
     private fun requestSimulation(route: Boolean, target: Coordinates = selected) {
+        cancelDeviceLocation()
         if (route) {
             try { RouteNavigator(routeDraft.points, routeDraft.speedKmh, routeDraft.loop) }
             catch (error: IllegalArgumentException) { message(error.message ?: getString(R.string.route_need_points)); return }
@@ -312,6 +322,7 @@ class MainActivity : AppCompatActivity() {
             state?.routePoints?.isNotEmpty() == true -> getString(R.string.route_running)
             state != null -> getString(R.string.simulation_badge)
             editingRoute -> resources.getQuantityString(R.plurals.route_editor_badge, routeDraft.points.size, routeDraft.points.size)
+            deviceLocation.searching -> getString(R.string.current_location_searching)
             else -> getString(R.string.select_point_hint)
         }
         if (status.text.toString() != statusMessage) status.text = statusMessage
@@ -350,6 +361,46 @@ class MainActivity : AppCompatActivity() {
 
     private fun coordinatesText(point: Coordinates) = String.format(Locale.US, "%.6f, %.6f", point.latitude, point.longitude)
     private fun message(text: String) { Snackbar.make(root, text, Snackbar.LENGTH_LONG).setAnchorView(R.id.locationCard).show() }
+
+    private fun cancelDeviceLocation() {
+        deviceLocation.cancel()
+        pendingCurrentLocation = false
+        findViewById<View>(R.id.centerButton)?.apply {
+            isEnabled = true
+            contentDescription = getString(R.string.center_selected)
+        }
+    }
+
+    private fun locateDevice() {
+        if (MockLocationService.isRunning || store.cleanupNeeded) {
+            message(getString(R.string.current_location_stop_mock))
+            return
+        }
+        if (!MockPermissions.hasLocation(this)) {
+            pendingCurrentLocation = true
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), CURRENT_LOCATION_REQUEST)
+            return
+        }
+        findViewById<View>(R.id.centerButton).apply {
+            isEnabled = false
+            contentDescription = getString(R.string.current_location_searching)
+        }
+        deviceLocation.locate { point, failure ->
+            cancelDeviceLocation()
+            if (MockLocationService.isRunning || store.cleanupNeeded) return@locate
+            if (point != null) {
+                workspace.zoom(16.0)
+                if (routeMode || editingRoute) workspace.center(point)
+                else select(point, center = true, name = getString(R.string.current_location))
+            } else message(getString(when (failure) {
+                DeviceLocation.Failure.PERMISSION -> R.string.current_location_permission
+                DeviceLocation.Failure.DISABLED -> R.string.current_location_disabled
+                else -> R.string.current_location_unavailable
+            }))
+            refreshStatus()
+        }
+        refreshStatus()
+    }
 
     @Suppress("DEPRECATION")
     private fun applyMapStyle() {
@@ -406,6 +457,13 @@ class MainActivity : AppCompatActivity() {
             pendingRoute = null; pendingPoint = null
             if (MockPermissions.hasLocation(this) && route != null && point != null) requestSimulation(route, point)
             else message(getString(R.string.location_permission_needed))
+        } else if (requestCode == CURRENT_LOCATION_REQUEST) {
+            val pending = pendingCurrentLocation
+            pendingCurrentLocation = false
+            if (pending) {
+                if (MockPermissions.hasLocation(this)) locateDevice()
+                else message(getString(R.string.current_location_permission))
+            }
         } else if (requestCode == NOTIFICATION_REQUEST && grantResults.firstOrNull() != PackageManager.PERMISSION_GRANTED) {
             message(getString(R.string.notification_permission_optional))
         }
@@ -430,10 +488,16 @@ class MainActivity : AppCompatActivity() {
         routeDraft = latest
         routeMode = preferences.routeWorkspace
         refreshStatus()
+        if (locateOnResume) {
+            locateOnResume = false
+            if (!MockLocationService.isRunning && !store.cleanupNeeded) locateDevice()
+        }
     }
 
     override fun onPause() { map.onPause(); super.onPause() }
     override fun onStop() {
+        if (deviceLocation.searching) locateOnResume = true
+        cancelDeviceLocation()
         if (receiverRegistered) unregisterReceiver(receiver)
         receiverRegistered = false
         super.onStop()
@@ -443,6 +507,8 @@ class MainActivity : AppCompatActivity() {
         workspace.save(outState)
         outState.putBoolean("editingRoute", editingRoute)
         outState.putBoolean("routeMode", routeMode)
+        outState.putBoolean("locateOnResume", locateOnResume || deviceLocation.searching)
+        outState.putBoolean("pendingCurrentLocation", pendingCurrentLocation)
         pendingRoute?.let { outState.putBoolean("pendingRoute", it) }
         pendingPoint?.let { outState.putDouble("pendingLatitude", it.latitude); outState.putDouble("pendingLongitude", it.longitude) }
         if (exportPoints.isNotEmpty()) outState.putDoubleArray("exportPoints", exportPoints.flatMap { listOf(it.latitude, it.longitude) }.toDoubleArray())
@@ -450,6 +516,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        deviceLocation.cancel()
         sheets.close(); lookup.close(); io.shutdown(); workspace.close()
         super.onDestroy()
     }
@@ -458,5 +525,6 @@ class MainActivity : AppCompatActivity() {
         const val ACTION_ROUTE_IMPORTED = "com.diegoca.gpsmocker.ROUTE_IMPORTED"
         private const val LOCATION_REQUEST = 100
         private const val NOTIFICATION_REQUEST = 101
+        private const val CURRENT_LOCATION_REQUEST = 102
     }
 }

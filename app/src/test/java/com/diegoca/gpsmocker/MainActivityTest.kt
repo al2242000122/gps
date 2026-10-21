@@ -2,6 +2,7 @@ package com.diegoca.gpsmocker
 
 import android.app.AppOpsManager
 import android.app.Application
+import android.Manifest
 import android.content.ClipboardManager
 import android.content.DialogInterface
 import android.content.pm.PackageManager
@@ -9,6 +10,9 @@ import android.content.pm.PermissionInfo
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.os.Bundle
+import android.os.SystemClock
+import android.location.Location
+import android.location.LocationManager
 import android.os.Process
 import android.provider.Settings
 import android.view.View
@@ -32,6 +36,8 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import org.robolectric.android.controller.ActivityController
 import org.robolectric.shadows.ShadowDialog
+import org.robolectric.shadows.ShadowSystemClock
+import java.time.Duration
 import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
@@ -186,13 +192,55 @@ class MainActivityTest {
     @Test
     @Config(sdk = [35], qualifiers = "w411dp-h891dp-night-xxhdpi")
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
-    fun `dark theme retains readable controls and a dark map source`() {
+    fun `dark system theme keeps a light map by default`() {
         val controller = launch()
         val activity = controller.get()
         layout(activity, 1233, 2673)
         val bridge = shadowOf(activity.findViewById<WebView>(R.id.map)).getJavascriptInterface(MapWorkspace.BRIDGE_NAME) as MapWorkspace.Bridge
-        assertTrue(org.json.JSONObject(bridge.initialState()).getString("style").endsWith("/dark"))
+        assertTrue(org.json.JSONObject(bridge.initialState()).getString("style").endsWith("/liberty"))
+        assertFalse(activity.findViewById<WebView>(R.id.map).isForceDarkAllowed)
         capture(activity, "home-dark.png")
+        controller.pause().stop().destroy()
+    }
+
+    @Test fun `opening centers and selects the current real position without starting simulation`() {
+        shadowOf(application).grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+        val manager = application.getSystemService(LocationManager::class.java)
+        shadowOf(manager).setLocationEnabled(true)
+        ShadowSystemClock.advanceBy(Duration.ofSeconds(60))
+        shadowOf(manager).setLastKnownLocation(LocationManager.GPS_PROVIDER, Location(LocationManager.GPS_PROVIDER).apply {
+            latitude = 20.0; longitude = -100.0; elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos(); accuracy = 5f
+        })
+        SimulationStore(application).saveSelection(Coordinates(40.0, -3.0))
+        val controller = launch()
+        assertEquals(Coordinates(20.0, -100.0), SimulationStore(application).selection())
+        val bridge = shadowOf(controller.get().findViewById<WebView>(R.id.map)).getJavascriptInterface(MapWorkspace.BRIDGE_NAME) as MapWorkspace.Bridge
+        val center = org.json.JSONObject(bridge.initialState()).getJSONArray("center")
+        assertEquals(-100.0, center.getDouble(0), 0.00001)
+        assertEquals(20.0, center.getDouble(1), 0.00001)
+        assertFalse(MockLocationService.isRunning)
+        assertNull(shadowOf(application).nextStartedService)
+        // Recreating the screen must retain a point chosen manually after the initial fix.
+        tap(controller.get(), Coordinates(21.0, -101.0))
+        val saved = Bundle()
+        controller.saveInstanceState(saved).pause().stop().destroy()
+        val recreated = Robolectric.buildActivity(MainActivity::class.java).create(saved)
+        recreated.get().findViewById<WebView>(R.id.map).settings.blockNetworkLoads = true
+        recreated.start().resume()
+        assertEquals(Coordinates(21.0, -101.0), SimulationStore(application).selection())
+        recreated.pause().stop().destroy()
+    }
+
+    @Test fun `location permission response only locates and never starts simulation`() {
+        val controller = launch()
+        val request = shadowOf(controller.get()).lastRequestedPermission
+        assertEquals(102, request.requestCode)
+        controller.get().onRequestPermissionsResult(request.requestCode, request.requestedPermissions,
+            IntArray(request.requestedPermissions.size) { PackageManager.PERMISSION_DENIED })
+        assertFalse(MockLocationService.isRunning)
+        assertNull(shadowOf(application).nextStartedService)
+        tap(controller.get(), Coordinates(19.0, -99.0))
+        assertEquals(Coordinates(19.0, -99.0), SimulationStore(application).selection())
         controller.pause().stop().destroy()
     }
 

@@ -8,6 +8,16 @@ data class RouteDraft(val points: List<Coordinates> = emptyList(), val speedKmh:
 class AppPreferences(context: Context) {
     private val preferences = context.getSharedPreferences("preferences", Context.MODE_PRIVATE)
 
+    init {
+        // Earlier builds defaulted to following the system, producing an unreadable night map.
+        // Migrate that default once; subsequent explicit appearance choices remain persistent.
+        if (!preferences.getBoolean("light_map_default_v1", false)) {
+            val editor = preferences.edit().putBoolean("light_map_default_v1", true)
+            if (preferences.getString("map_style", "auto") == "auto") editor.putString("map_style", "light")
+            editor.apply()
+        }
+    }
+
     fun options(): SimulationOptions = runCatching {
         SimulationOptions(preferences.getString("altitude", "0")!!.toDouble(),
             preferences.getFloat("accuracy", 3f), preferences.getLong("interval", 1000L))
@@ -31,7 +41,7 @@ class AppPreferences(context: Context) {
         set(value) { preferences.edit().putBoolean("route_workspace", value).apply() }
 
     var mapStyle: String
-        get() = preferences.getString("map_style", "auto") ?: "auto"
+        get() = preferences.getString("map_style", "light") ?: "light"
         set(value) { require(value in setOf("auto", "light", "dark")); preferences.edit().putString("map_style", value).apply() }
 
     fun route(): RouteDraft = runCatching {
