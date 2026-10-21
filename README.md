@@ -2,6 +2,8 @@
 
 App Android en Kotlin para seleccionar puntos en un mapa y simular ubicaciones durante pruebas de desarrollo. Android 8.0 o superior; sin root ni clave de Google Maps.
 
+Plan de trabajo: [pendientes priorizados](docs/PENDIENTES.md) y [skills evaluadas para el proyecto](docs/SKILLS.md).
+
 ## Versión 0.3.1
 
 - Al abrir, busca una ubicación real reciente y centra el mapa sin comenzar la simulación. El botón de centrar permite reintentar. Solicita permiso de ubicación; admite ubicación aproximada. Si no hay permiso, señal o GPS activo, conserva la selección anterior e indica cómo continuar.
