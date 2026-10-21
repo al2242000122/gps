@@ -2,10 +2,17 @@
 <resources>
     <string name="app_name">GPS Mocker</string>
     <string name="title">GPS Mocker</string>
-    <string name="subtitle">Simula una ubicación para probar aplicaciones Android propias o autorizadas.</string>
+    <string name="subtitle">Elige un punto del mapa y simula su ubicación.</string>
+    <string name="map_hint">Toca el mapa o mantén pulsado el marcador para arrastrarlo. Pulsa Iniciar para aplicar el punto seleccionado.</string>
+    <string name="map_description">Mapa para seleccionar la ubicación simulada</string>
+    <string name="map_attribution">© OpenStreetMap contributors · https://www.openstreetmap.org/copyright</string>
+    <string name="marker_title">Ubicación seleccionada</string>
+    <string name="center_on_map">Ver coordenadas en el mapa</string>
     <string name="latitude">Latitud</string>
     <string name="longitude">Longitud</string>
-    <string name="start">Aplicar ubicación</string>
+    <string name="default_latitude" translatable="false">19.432608</string>
+    <string name="default_longitude" translatable="false">-99.133209</string>
+    <string name="start">Iniciar / actualizar ubicación</string>
     <string name="stop">Detener simulación</string>
     <string name="open_settings">Abrir opciones de desarrollador</string>
     <string name="initial_status">Selecciona esta aplicación en “Aplicación de ubicación simulada” antes de iniciar.</string>
@@ -14,5 +21,15 @@
     <string name="location_stopped">Simulación detenida.</string>
     <string name="select_mock_app">Selecciona GPS Mocker como aplicación de ubicación simulada en las opciones de desarrollador.</string>
     <string name="generic_error">No fue posible aplicar la ubicación.</string>
+    <string name="notification_channel">Simulación de ubicación</string>
+    <string name="notification_title">GPS Mocker está simulando tu ubicación</string>
+    <string name="permission_or_mock_error">Revisa el permiso de ubicación y selecciona GPS Mocker como app de ubicación simulada.</string>
+    <string name="enable_location">Activa la ubicación del teléfono y vuelve a pulsar Iniciar.</string>
+    <string name="location_permission_needed">Concede el permiso de ubicación en Ajustes → Aplicaciones → GPS Mocker → Permisos para mantener la simulación en segundo plano.</string>
+    <string name="notification_permission_optional">Puedes continuar sin notificaciones. Para ver el botón Detener en la notificación, habilítalas en los ajustes de la app.</string>
+    <string name="cleanup_failed">No se pudo confirmar la restauración del GPS. Vuelve a seleccionar GPS Mocker como app de ubicación simulada y pulsa Detener otra vez.</string>
+    <string name="simulation_interrupted">La simulación se interrumpió. Pulsa Detener para restaurar el GPS o Iniciar para reanudarla.</string>
+    <string name="start_failed">No se pudo iniciar el servicio. Revisa los permisos e inténtalo con la app abierta.</string>
+    <string name="settings_unavailable">No se pudieron abrir los ajustes. Abre manualmente las opciones de desarrollador.</string>
     <string name="disclaimer">Herramienta para pruebas legítimas. Android identifica esta ubicación como simulada; la app no intenta ocultarlo ni evadir controles de terceros.</string>
 </resources>
