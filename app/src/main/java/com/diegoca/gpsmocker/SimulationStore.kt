@@ -19,23 +19,16 @@ class SimulationStore(context: Context) {
         preferences.edit().putString("message", message).putBoolean("error", error).apply()
     }
 
-    fun selection(): Coordinates = Coordinates.parse(
-        preferences.getString("latitude", null).orEmpty(),
-        preferences.getString("longitude", null).orEmpty()
-    ) ?: Coordinates.DEFAULT
-
-    fun saveSelection(coordinates: Coordinates) {
-        preferences.edit()
-            .putString("latitude", coordinates.latitude.toString())
-            .putString("longitude", coordinates.longitude.toString())
-            .apply()
+    private val data by lazy { UserDataRepository.get(context.applicationContext) }
+    fun selection(): Coordinates = data.snapshot().selection
+    fun saveSelection(coordinates: Coordinates) { data.update { it.copy(selection = coordinates) } }
+    fun saveSelection(coordinates: Coordinates, name: String, address: String) {
+        data.update { it.copy(selection = coordinates, selectionName = name.take(200), selectionAddress = address.take(500)) }
     }
-
     var selectionName: String
-        get() = preferences.getString("selection_name", "Punto seleccionado") ?: "Punto seleccionado"
-        set(value) { preferences.edit().putString("selection_name", value.take(200)).apply() }
-
+        get() = data.snapshot().selectionName
+        set(value) { data.update { it.copy(selectionName = value.take(200)) } }
     var selectionAddress: String
-        get() = preferences.getString("selection_address", "").orEmpty()
-        set(value) { preferences.edit().putString("selection_address", value.take(500)).apply() }
+        get() = data.snapshot().selectionAddress
+        set(value) { data.update { it.copy(selectionAddress = value.take(500)) } }
 }

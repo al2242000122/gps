@@ -10,6 +10,7 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])
 class PlaceLibraryTest {
+    @get:org.junit.Rule val userDataRule = UserDataTestRule()
     private val context get() = RuntimeEnvironment.getApplication()
 
     @Test fun `favorites persist support rename and deduplicate the same point`() {

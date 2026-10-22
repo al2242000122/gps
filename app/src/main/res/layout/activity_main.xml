@@ -140,4 +140,6 @@
             </LinearLayout>
         </com.diegoca.gpsmocker.BoundedScrollView>
     </com.google.android.material.card.MaterialCardView>
+    <FrameLayout android:id="@+id/adContainer" android:layout_width="320dp" android:layout_height="50dp"
+        android:layout_gravity="bottom|center_horizontal" android:visibility="gone" android:contentDescription="@string/advertisement" />
 </FrameLayout>

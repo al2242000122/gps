@@ -6,10 +6,14 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.util.Locale
 
+data class GpxRoute(val points: List<Coordinates>, val source: String = "")
+
 object GpxCodec {
     const val MAX_BYTES = 2 * 1024 * 1024
 
-    fun read(input: InputStream): List<Coordinates> {
+    fun read(input: InputStream): List<Coordinates> = readDocument(input).points
+
+    fun readDocument(input: InputStream): GpxRoute {
         val bytes = input.readBytesBounded()
         val parser = Xml.newPullParser()
         parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
@@ -20,6 +24,7 @@ object GpxCodec {
         var event = parser.eventType
         var count = 0
         var rootSeen = false
+        var source = ""
         while (event != XmlPullParser.END_DOCUMENT) {
             require(event != XmlPullParser.DOCDECL) { "El GPX no puede contener declaraciones externas." }
             if (event == XmlPullParser.START_TAG && !rootSeen) {
@@ -34,14 +39,18 @@ object GpxCodec {
                 val list = when (parser.name) { "trkpt" -> track; "rtept" -> route; else -> waypoints }
                 if (list.lastOrNull() != point) list += point
             }
+            if (event == XmlPullParser.START_TAG && parser.name == "keywords") {
+                if (parser.nextText().split(',').any { it.trim() == "gps-mocker:geoapify" }) source = "geoapify"
+            }
             event = parser.nextToken()
         }
         val result = track.ifEmpty { route.ifEmpty { waypoints } }
         require(result.size >= 2) { "El GPX debe contener al menos dos puntos distintos." }
-        return result
+        return GpxRoute(result, source)
     }
 
-    fun write(output: OutputStream, points: List<Coordinates>) {
+    fun write(output: OutputStream, points: List<Coordinates>, source: String = "") {
+        require(source in setOf("", "geoapify"))
         require(points.size in 2..RouteNavigator.MAX_POINTS)
         val serializer = Xml.newSerializer()
         serializer.setOutput(output, "UTF-8")
@@ -49,6 +58,16 @@ object GpxCodec {
         serializer.startTag(null, "gpx").attribute(null, "version", "1.1")
             .attribute(null, "creator", "GPS Mocker")
             .attribute(null, "xmlns", "http://www.topografix.com/GPX/1/1")
+        if (source == "geoapify") {
+            serializer.startTag(null, "metadata")
+                .startTag(null, "desc").text("Powered by Geoapify · © OpenStreetMap contributors").endTag(null, "desc")
+                .startTag(null, "link").attribute(null, "href", "https://www.geoapify.com/")
+                .startTag(null, "text").text("Geoapify").endTag(null, "text").endTag(null, "link")
+                .startTag(null, "link").attribute(null, "href", "https://www.openstreetmap.org/copyright")
+                .startTag(null, "text").text("OpenStreetMap contributors").endTag(null, "text").endTag(null, "link")
+                .startTag(null, "keywords").text("gps-mocker:geoapify").endTag(null, "keywords")
+                .endTag(null, "metadata")
+        }
         serializer.startTag(null, "trk").startTag(null, "name").text("Ruta GPS Mocker").endTag(null, "name")
         serializer.startTag(null, "trkseg")
         for (point in points) {

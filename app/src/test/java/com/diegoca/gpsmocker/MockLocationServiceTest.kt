@@ -23,6 +23,7 @@ import java.time.Duration
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28, 35])
 class MockLocationServiceTest {
+    @get:org.junit.Rule val userDataRule = UserDataTestRule()
     private lateinit var controller: ServiceController<TestService>
     private val context: Application get() = RuntimeEnvironment.getApplication()
 

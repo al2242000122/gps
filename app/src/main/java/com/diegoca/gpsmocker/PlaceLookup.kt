@@ -62,6 +62,7 @@ class PlaceLookup(context: Context) {
         }
     }
 
+    fun cancelReverse() { reverseId++; reverseTask?.cancel(true) }
     fun cancelSearch() { queryId++; searchTask?.cancel(true) }
     fun close() { closed = true; queryId++; reverseId++; executor.shutdownNow() }
 }

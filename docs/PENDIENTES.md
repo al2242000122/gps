@@ -1,93 +1,75 @@
 # Pendientes de GPS Mocker
 
-Actualizado: 21 de octubre de 2026. Base: versión 0.3.1.
+Actualizado: 22 de octubre de 2026. Implementación 0.4.0; las casillas completadas indican código o documentación terminados, no cuentas creadas ni validaciones físicas.
 
-Estos son los seis pendientes acordados con el usuario. Las casillas representan trabajo por realizar; la búsqueda de skills está documentada en [SKILLS.md](SKILLS.md).
+## 1. Firma estable — P0
 
-Prioridades: **P0**, siguiente entrega; **P1**, preparación para distribución; **P2**, ampliaciones posteriores.
+- [x] Separar Dev `.debug` de distribución estable y establecer versionCode creciente.
+- [x] Preparar creación local de claves persistentes app/upload con contraseña, certificados y copia bajo custodia del propietario.
+- [x] Flujo manual desde main: compilar sin secretos y firmar en otro job, verificar huellas, generar metadatos públicos y limpiar temporales.
+- [x] Prueba con claves efímeras: APK/AAB válidos, certificados separados y rechazo de huella incorrecta.
+- [ ] Crear y custodiar las claves **reales** y configurar los secretos del entorno GitHub `release`.
+- [ ] Integrar el código validado en main y ejecutar la primera entrega con esas claves.
+- [ ] Verificar dos actualizaciones estables consecutivas en el teléfono conservando todos los datos.
 
-## 1. Firma estable para las actualizaciones — P0
+Guía: [respaldo y firma](RESPALDO_Y_FIRMA.md). La firma de APK antiguos puede ser irrecuperable: rescatar los datos antes de una reinstalación.
 
-- [ ] Definir y custodiar una clave de firma persistente, con copia de recuperación.
-- [ ] Configurar la firma de las compilaciones distribuidas desde GitHub Actions sin incluir la clave ni sus contraseñas en el repositorio, logs o artefactos públicos.
-- [ ] Separar las compilaciones de prueba de las de distribución y mantener `versionCode` creciente.
-- [ ] Documentar cómo generar, verificar y distribuir APK firmados y, para Play Store, el AAB de producción y Play App Signing.
-- [ ] Verificar que dos nuevas versiones firmadas con la misma clave se actualizan conservando favoritos, rutas y ajustes.
+## 2. Pruebas físicas — P1
 
-**Resultado esperado:** las futuras actualizaciones se instalan sobre la versión anterior y conservan los datos. La transición desde los APK actuales, firmados con claves de depuración variables, puede requerir una reinstalación; preparar antes el respaldo del punto 3. No se promete compatibilidad con una clave privada anterior que no se conserva.
+- [x] Ampliar automatización para API 26/35/36 y pruebas de respaldo, corrupción, escritura fallida, restauración y rutas.
+- [x] Preparar matriz reproducible y sesiones de rendimiento de 30 minutos.
+- [ ] Ejecutar la matriz en el teléfono del usuario y un segundo fabricante para Play.
+- [ ] Medir CPU, memoria, batería, arranque y wake lock; conservar trazas e incidencias.
+- [ ] Comprobar restauración real del GPS, interrupciones, pantalla apagada, TalkBack, fuente ampliada y rotación.
 
-Skills de apoyo: `github-actions-hardening` y, como referencia general de automatización, `github-actions-templates`. La configuración de firma Android se contrasta con la documentación de Android; esas skills no proporcionan una clave ni sustituyen su custodia.
+Estado: no había dispositivo ADB conectado. [Protocolo y evidencias](PRUEBAS.md).
 
-## 2. Pruebas en teléfonos reales — P1
+## 3. Respaldo — P0
 
-- [ ] Registrar dispositivo, fabricante, versión de Android, versión de WebView y APK utilizado.
-- [ ] Comprobar el inicio en la ubicación real con permiso preciso y aproximado; probar denegación, ubicación desactivada, falta de señal y reintento.
-- [ ] Confirmar que una posición simulada no se presenta como ubicación real y que abrir la app conserva una simulación activa.
-- [ ] Verificar comienzo, actualización y detención de la simulación, restauración del GPS y recuperación tras una interrupción.
-- [ ] Probar rutas, pausa, reanudación, repetición y finalización con pantalla apagada y al cambiar de aplicación.
-- [ ] Medir batería, CPU y memoria durante una sesión representativa; revisar el servicio y el bloqueo de CPU con datos del dispositivo.
-- [ ] Revisar el mapa claro/oscuro, legibilidad de etiquetas y marcadores, fuente ampliada, TalkBack y orientación horizontal.
-- [ ] Cubrir el mínimo soportado, Android 8, y versiones recientes, incluyendo Android 15 y la versión vigente al publicar; distinguir resultados reales de pruebas en emulador.
+- [x] JSON versionado (lee 1/2, exporta 2), con favoritos, historial, selección, apariencia, opciones y ruta.
+- [x] Exportar/importar con SAF sin permisos generales; mostrar fecha y conteos y confirmar reemplazo completo.
+- [x] Validar estructura, UTF-8, versión, tamaño, coordenadas y límites antes de modificar.
+- [x] DataStore único, migración persistente desde preferencias y reemplazo atómico; no vaciar silenciosamente datos dañados.
+- [x] Bloquear restauración con simulación/limpieza pendientes y escrituras normales durante el reemplazo.
+- [x] Herramienta USB para extraer y verificar XML del APK antiguo, conservar originales y generar JSON compatible; fixture contrastado con el codec Android.
+- [ ] Ejecutar rescate de los datos **del usuario** y comprobar exportación → instalación limpia → restauración en teléfono.
 
-**Resultado esperado:** informe reproducible con escenarios aprobados, incidencias y mediciones. Las 70 pruebas automatizadas de 0.3.1 son la base existente; no sustituyen esta comprobación física.
+## 4. Rutas por calles — P2
 
-Skills de apoyo: `testing-setup`, `android-profiler`, `android-permissions-security`, `mobile-android-design` y `maplibre-cartography`.
+- [x] Seleccionar Geoapify Free comercial y proxy Cloudflare Free con secreto fuera del APK.
+- [x] Perfiles caminar/bicicleta/automóvil, puntos elegidos desde mapa, cálculo explícito, distancia/tiempo y alternativa directa/GPX.
+- [x] Circuito completo por calles, validación de geometría, simplificación acotada y atribución en app, respaldo y GPX.
+- [x] Cuotas compartidas con SQLite, reservas previas, bloqueo ante fallo, cancelación de respuestas obsoletas y ausencia de reintentos automáticos.
+- [x] Pruebas de contrato, errores y SQLite concurrente/persistente; preparación del bundle mediante dry-run.
+- [ ] Crear cuentas gratuitas del propietario, guardar Geoapify como secreto y desplegar el Worker.
+- [ ] Configurar URL y comprobar cobertura/perfiles/circuitos reales en el teléfono.
 
-## 3. Respaldo de favoritos y ajustes — P0
-
-- [ ] Definir un formato de respaldo versionado para favoritos, ajustes, selección y rutas. Decidir si incluye historial e indicarlo al exportar.
-- [ ] Exportar e importar mediante el selector de archivos de Android, sin permisos generales de almacenamiento.
-- [ ] Validar formato, tamaño y coordenadas antes de modificar datos; una importación inválida debe conservar los datos existentes.
-- [ ] Definir cómo combinar o reemplazar datos y resolver favoritos duplicados.
-- [ ] Informar qué contiene el archivo, ya que puede incluir ubicaciones personales.
-- [ ] Verificar exportación → instalación limpia → restauración y compatibilidad entre versiones.
-
-**Resultado esperado:** recuperar los datos tras una reinstalación. La exportación GPX actual cubre rutas, pero no constituye un respaldo de favoritos y ajustes.
-
-Apoyo técnico: documentación de Storage Access Framework y pruebas de persistencia e importación. No se seleccionó una skill de respaldo suficientemente adecuada al proyecto actual.
-
-## 4. Rutas siguiendo las calles — P2
-
-- [ ] Evaluar un motor de rutas y sus perfiles para caminar, bicicleta y automóvil; comparar cobertura, coste, cuotas, términos y privacidad.
-- [ ] Mantener diferenciadas la ruta directa actual y la ruta calculada por calles.
-- [ ] Previsualizar distancia, recorrido y duración estimada antes de iniciar.
-- [ ] Resolver errores de conexión, límites del proveedor y trayectos imposibles conservando la ruta anterior.
-- [ ] Integrar la geometría calculada con velocidad, progreso, pausa, repetición y GPX, respetando los límites de puntos y recursos del teléfono.
-- [ ] Probar cruces, sentidos de circulación y restricciones según el perfil elegido.
-
-**Resultado esperado:** simular un recorrido calculado sobre calles, con elección de perfil. La cartografía de OpenFreeMap no aporta por sí sola un servicio de cálculo de rutas.
-
-Skills de apoyo: `maplibre-cartography` y `maplibre-tile-sources` para representación y fuentes; la elección del motor necesita documentación específica del proveedor.
+Guía: [rutas y publicidad](RUTAS_Y_PUBLICIDAD.md). Las cuotas de Geoapify son blandas: no se promete uso ilimitado ni garantía contractual de coste cero.
 
 ## 5. Preparación para Play Store — P1
 
-- [ ] Generar y verificar una compilación de producción y un AAB firmado, después de resolver el punto 1.
-- [ ] Definir nombre, icono definitivo, categoría, descripción breve y completa, capturas y gráfico de la ficha.
-- [ ] Preparar política de privacidad y declaración de Seguridad de los datos según el comportamiento real de la app, cartografía, geocodificación y los SDK que finalmente se incluyan.
-- [ ] Revisar permisos de ubicación, servicio en primer plano, notificaciones y requisitos vigentes de API objetivo y de publicación en la cuenta utilizada.
-- [ ] Describir claramente la función de ubicación simulada y comprobar las políticas aplicables a esa función.
-- [ ] Realizar una prueba interna o cerrada según corresponda, atender las incidencias y preparar notas de versión.
+- [x] Actualizar compile/target a API 36 conservando mínimo 26; generar APK/AAB de producción sin firma.
+- [x] Icono adaptativo y exportación de icono 512 y gráfico 1024×500 desde vectores de la app.
+- [x] Preparar ficha en español, política local/web, mapa de datos/permisos y requisitos de publicación.
+- [x] Ejecutar auditoría `play-policy-insights`; resultado Needs Review por configuraciones/declaraciones pendientes, sin ficha publicada para comparar.
+- [ ] Crear y verificar cuenta personal Play; configurar contacto real y web pública.
+- [ ] Obtener capturas reales del mapa y vídeo de uso del servicio en primer plano.
+- [ ] Completar declaraciones, clasificación, audiencia y Seguridad de los datos del build que se presente.
+- [ ] Registrar claves en Play App Signing y ejecutar prueba interna/cerrada: 12 testers durante 14 días, después solicitar producción.
 
-**Resultado esperado:** paquete y ficha listos para presentar a revisión. Una auditoría o una skill no garantizan la aprobación de Google Play.
+Guía: [publicación](PUBLICACION.md). La auditoría no garantiza aprobación.
 
-Skills de apoyo: `play-policy-insights`, `android-permissions-security` y `aso`. La skill `aso` se aprovecha para preparar la ficha; su auditoría completa de una ficha publicada se realizará cuando exista una URL de Play Store.
+## 6. AdMob — P2
 
-## 6. Monetización opcional con AdMob — P2
+- [x] Integración opcional Next-Gen/UMP, solo banner 320×50, espacio reservado y ocultación si no cabe o falla.
+- [x] Consentimiento previo a inicialización/carga y acceso a opciones de privacidad cuando corresponde.
+- [x] IDs de prueba y flag desactivado por defecto; excluir Advertising ID y estado básico del teléfono.
+- [x] Política y guía de configuración de cuenta, mensajes, unidades reales y app-ads.txt.
+- [ ] Crear/verificar cuenta AdMob, mensajes UMP y unidad banner del propietario.
+- [ ] Probar consentimiento y rendimiento real con anuncios de prueba.
+- [ ] Publicar línea app-ads.txt de la cuenta, vincular ficha Play y completar preparación de AdMob.
+- [ ] Habilitar unidades reales mediante una entrega posterior cuando esté todo preparado.
 
-- [ ] Decidir formatos y posiciones que mantengan accesibles el mapa, las coordenadas y los controles de simulación.
-- [ ] Integrar primero el SDK y unidades de prueba; verificar que la falta de red o de anuncio no bloquea el funcionamiento.
-- [ ] Incorporar el flujo de consentimiento y las opciones de privacidad que correspondan a los mercados y configuración de la app.
-- [ ] Medir el efecto sobre inicio, batería, memoria y uso del mapa.
-- [ ] Actualizar política de privacidad y Seguridad de los datos con el comportamiento efectivo del SDK.
-- [ ] Configurar unidades de producción y, cuando corresponda, `app-ads.txt`; comprobar la integración antes de distribuir.
+## Próximo paso operativo
 
-**Resultado esperado:** monetización opcional que preserve la utilidad de la app. No se presupone una tarifa ni un ingreso fijo por anuncios.
-
-Apoyo técnico: documentación oficial de Google Mobile Ads y UMP. Las skills específicas de AdMob encontradas tenían poca adopción o estaban orientadas a otros stacks; no se seleccionaron como guía principal.
-
-## Orden propuesto de ejecución
-
-1. Respaldo de datos y firma estable, preparando el respaldo antes de cualquier transición que obligue a reinstalar.
-2. Verificación en teléfonos reales y corrección de incidencias.
-3. Preparación de producción y Play Store.
-4. Rutas por calles y monetización, como entregas posteriores.
+Probar el APK Dev junto a la instalación actual, rescatar los datos antiguos y preparar las claves del propietario. Después activar servicios externos y completar las verificaciones físicas antes de presentar la app a Play.

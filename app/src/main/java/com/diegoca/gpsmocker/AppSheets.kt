@@ -186,12 +186,12 @@ class AppSheets(private val activity: AppCompatActivity) {
                 show(MaterialAlertDialogBuilder(activity).setTitle(place.name)
                     .setItems(arrayOf(string(R.string.rename), string(R.string.delete))) { _, which ->
                         if (which == 0) nameDialog(place.name) { library.rename(place.id, it); refresh() }
-                        else { library.deleteFavorite(place.id); refresh() }
+                        else safely { library.deleteFavorite(place.id); refresh() }
                     }.create())
                 true
             }
         }
-        clear.setOnClickListener { confirm(R.string.clear_history, R.string.clear_history_confirm) { library.clearHistory(); refresh() } }
+        clear.setOnClickListener { confirm(R.string.clear_history, R.string.clear_history_confirm) { safely { library.clearHistory(); refresh() } } }
         refresh()
         show(dialog)
     }
@@ -213,16 +213,34 @@ class AppSheets(private val activity: AppCompatActivity) {
         dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE).setOnClickListener {
             val name = edit.text.toString().trim()
             if (name.isEmpty()) edit.error = string(R.string.favorite_name)
-            else { onSave(name); dialog.dismiss() }
+            else safely { onSave(name); dialog.dismiss() }
         }
     }
 
     fun routes(draft: RouteDraft, onEdit: (RouteDraft) -> Unit, onStart: (RouteDraft) -> Unit,
-               onImport: (RouteDraft) -> Unit, onExport: (RouteDraft) -> Unit, onClear: () -> Unit) {
+               onImport: (RouteDraft) -> Unit, onExport: (RouteDraft) -> Unit, onClear: () -> Unit, onCalculate: (RouteDraft) -> Unit) {
         val (dialog, body) = sheet(R.string.routes, scroll = true)
         val distance = draft.points.zipWithNext { a, b -> RouteNavigator.distance(a, b) }.sum()
-        body.addView(label(activity.resources.getQuantityString(R.plurals.route_points, draft.points.size, draft.points.size, distance(distance)), 16f, false))
-        body.addView(label(string(R.string.route_disclaimer), 13f))
+        body.addView(label(if (draft.mode == RouteMode.STREET && !draft.ready) "${draft.editablePoints.size} puntos elegidos · calcula el recorrido"
+            else activity.resources.getQuantityString(R.plurals.route_points, draft.points.size, draft.points.size, distance(distance)), 16f, false))
+        body.addView(label(if (draft.mode == RouteMode.STREET) "Elige los puntos en el mapa y calcula el recorrido por calles." else string(R.string.route_disclaimer), 13f))
+        val mode = Spinner(activity).apply {
+            minimumHeight = dp(48)
+            adapter = ArrayAdapter(activity, android.R.layout.simple_spinner_dropdown_item, listOf("Ruta directa", "Por calles", "Importada GPX"))
+            setSelection(draft.mode.ordinal)
+        }
+        body.addView(mode)
+        val profile = Spinner(activity).apply {
+            minimumHeight = dp(48)
+            adapter = ArrayAdapter(activity, android.R.layout.simple_spinner_dropdown_item, RouteProfile.entries.map { it.label })
+            setSelection(draft.profile.ordinal)
+        }
+        body.addView(profile)
+        if (draft.attribution.isNotEmpty()) body.addView(label(draft.attribution, 12f).apply {
+            text = android.text.Html.fromHtml("<a href=\"https://www.geoapify.com/\">Powered by Geoapify</a> · <a href=\"https://www.openstreetmap.org/copyright\">© OpenStreetMap contributors</a>", android.text.Html.FROM_HTML_MODE_LEGACY)
+            movementMethod = android.text.method.LinkMovementMethod.getInstance()
+        })
+        draft.estimatedSeconds?.let { body.addView(label("Tiempo vial estimado: ${(it / 60).toInt()} min. La simulación usa la velocidad indicada abajo.")) }
         val speed = input(body, R.string.route_speed_label, draft.speedKmh.toString(), true)
         val loop = MaterialSwitch(activity).apply { setText(R.string.route_loop_label); isChecked = draft.loop; minHeight = dp(48) }
         body.addView(loop)
@@ -231,14 +249,33 @@ class AppSheets(private val activity: AppCompatActivity) {
             val value = speed.text.toString().trim().replace(',', '.').toDoubleOrNull()
             return if (value == null || !value.isFinite() || value !in 0.5..300.0) {
                 speed.error = "0,5–300 km/h"; null
-            } else draft.copy(speedKmh = value, loop = loop.isChecked)
+            } else {
+                val chosenMode = RouteMode.entries[mode.selectedItemPosition]
+                val chosenProfile = RouteProfile.entries[profile.selectedItemPosition]
+                val changed = chosenMode != draft.mode || chosenMode == RouteMode.STREET && (chosenProfile != draft.profile || loop.isChecked != draft.loop)
+                val base = draft.copy(speedKmh = value, loop = loop.isChecked, mode = chosenMode, profile = chosenProfile)
+                if (changed) {
+                    if (chosenMode == RouteMode.STREET && draft.editablePoints.size > 20) {
+                        Toast.makeText(activity, "Por calles admite hasta 20 puntos. Crea una ruta más corta.", Toast.LENGTH_LONG).show()
+                        return null
+                    }
+                    if (chosenMode == RouteMode.STREET) base.copy(points = emptyList(), waypoints = draft.editablePoints, calculatedLoop = null, estimatedSeconds = null, source = "")
+                    else base.copy(points = draft.editablePoints, waypoints = emptyList(), calculatedLoop = null, estimatedSeconds = null, source = if (draft.mode == RouteMode.STREET) "" else draft.source)
+                } else base
+            }
         }
         body.addView(button(if (draft.points.isEmpty()) R.string.draw_route else R.string.edit_route, R.drawable.ic_route, tonal = true).apply {
             setOnClickListener { current()?.let { onEdit(it); dialog.dismiss() } }
         }, LinearLayout.LayoutParams(-1, dp(56)))
+        body.addView(button(R.string.calculate_street_route, R.drawable.ic_route, tonal = true).apply {
+            setOnClickListener { current()?.let { route ->
+                if (route.mode != RouteMode.STREET) Toast.makeText(activity, "Elige el modo Por calles.", Toast.LENGTH_LONG).show()
+                else { onCalculate(route); dialog.dismiss() }
+            } }
+        }, LinearLayout.LayoutParams(-1, dp(56)))
         body.addView(button(R.string.route_start, R.drawable.ic_play).apply {
             setOnClickListener { current()?.let { route ->
-                try { RouteNavigator(route.points, route.speedKmh, route.loop); onStart(route); dialog.dismiss() }
+                try { require(route.ready) { "Calcula la ruta por calles o elige al menos dos puntos." }; RouteNavigator(route.points, route.speedKmh, route.loop); onStart(route); dialog.dismiss() }
                 catch (error: IllegalArgumentException) { Toast.makeText(activity, error.message, Toast.LENGTH_LONG).show() }
             } }
         }, LinearLayout.LayoutParams(-1, dp(56)))
@@ -252,17 +289,26 @@ class AppSheets(private val activity: AppCompatActivity) {
         }, LinearLayout.LayoutParams(0, dp(56), 1f))
         body.addView(files)
         body.addView(button(R.string.clear_route, textOnly = true).apply {
-            isEnabled = draft.points.isNotEmpty()
+            isEnabled = draft.editablePoints.isNotEmpty()
             setOnClickListener { confirm(R.string.clear_route, R.string.clear_route_confirm) { onClear(); dialog.dismiss() } }
         })
         show(dialog)
     }
 
-    fun settings(preferences: AppPreferences, onSave: (SimulationOptions, Boolean) -> Unit, onDeveloper: () -> Unit) {
+    fun settings(preferences: AppPreferences, onSave: (SimulationOptions, Boolean) -> Unit, onDeveloper: () -> Unit, onBackup: () -> Unit, privacyOptionsRequired: Boolean, onPrivacyOptions: () -> Unit, onPrivacyPolicy: () -> Unit) {
         val (dialog, body) = sheet(R.string.settings, scroll = true)
         body.addView(button(R.string.developer_settings, R.drawable.ic_settings, tonal = true).apply {
             setOnClickListener { dialog.dismiss(); onDeveloper() }
         }, LinearLayout.LayoutParams(-1, dp(56)))
+        body.addView(button(R.string.backup_restore, R.drawable.ic_download, tonal = true).apply {
+            setOnClickListener { dialog.dismiss(); onBackup() }
+        }, LinearLayout.LayoutParams(-1, dp(56)))
+        body.addView(button(R.string.privacy_policy, textOnly = true).apply {
+            setOnClickListener { onPrivacyPolicy() }
+        })
+        if (privacyOptionsRequired) body.addView(button(R.string.privacy_options, textOnly = true).apply {
+            setOnClickListener { dialog.dismiss(); onPrivacyOptions() }
+        })
         body.addView(label(string(R.string.simulation_options), 18f, false))
         val options = preferences.options()
         val altitude = input(body, R.string.altitude_label, options.altitudeMeters.toString(), true)
@@ -288,7 +334,7 @@ class AppSheets(private val activity: AppCompatActivity) {
                     SimulationOptions(altitude.text.toString().replace(',', '.').toDouble(),
                         accuracy.text.toString().replace(',', '.').toFloat(), intervals[interval.selectedItemPosition])
                 }
-                result.fold(onSuccess = { onSave(it, dynamic.isChecked); dialog.dismiss() },
+                result.fold(onSuccess = { safely { onSave(it, dynamic.isChecked); dialog.dismiss() } },
                     onFailure = { Toast.makeText(activity, R.string.invalid_options, Toast.LENGTH_LONG).show() })
             }
         }, LinearLayout.LayoutParams(-1, dp(56)))
@@ -304,11 +350,14 @@ class AppSheets(private val activity: AppCompatActivity) {
     }
 
     fun developer(onOpen: () -> Unit) {
-        show(MaterialAlertDialogBuilder(activity).setTitle(R.string.developer_settings).setMessage(R.string.developer_guide)
+        show(MaterialAlertDialogBuilder(activity).setTitle(R.string.developer_settings).setMessage(activity.getString(R.string.developer_guide, string(R.string.app_name)))
             .setPositiveButton(R.string.open_settings_action) { _, _ -> onOpen() }
             .setNegativeButton(R.string.cancel, null).create())
     }
 
+    private fun safely(action: () -> Unit) {
+        try { action() } catch (e: Exception) { Toast.makeText(activity, "No se pudieron guardar los cambios: ${e.message}", Toast.LENGTH_LONG).show() }
+    }
     private fun confirm(title: Int, message: Int, confirmed: () -> Unit) {
         show(MaterialAlertDialogBuilder(activity).setTitle(title).setMessage(message)
             .setPositiveButton(R.string.delete) { _, _ -> confirmed() }.setNegativeButton(R.string.cancel, null).create())

@@ -41,9 +41,10 @@ import java.time.Duration
 import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28, 35])
+@Config(sdk = [26, 35, 36])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class MainActivityTest {
+    @get:org.junit.Rule val userDataRule = UserDataTestRule()
     private val application: Application get() = RuntimeEnvironment.getApplication()
 
     @Suppress("DEPRECATION")
@@ -169,6 +170,7 @@ class MainActivityTest {
         val bitmap = Bitmap.createBitmap(decor.width, decor.height, Bitmap.Config.ARGB_8888)
         decor.draw(Canvas(bitmap))
         val directory = File("build/outputs/previews").apply { mkdirs() }
+        StoreAssets.export(activity)
         File(directory, "home-light.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         bitmap.recycle()
         controller.pause().stop().destroy()
@@ -246,6 +248,78 @@ class MainActivityTest {
         assertNull(shadowOf(application).nextStartedService)
         tap(controller.get(), Coordinates(19.0, -99.0))
         assertEquals(Coordinates(19.0, -99.0), SimulationStore(application).selection())
+        controller.pause().stop().destroy()
+    }
+
+
+    @Test @Config(sdk = [35])
+    fun `backup export uses document picker without broad storage permission`() {
+        shadowOf(application).grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+        val controller = launch();val activity=controller.get()
+        activity.findViewById<View>(R.id.settingsButton).performClick()
+        val settings=ShadowDialog.getLatestDialog()
+        views(settings.window!!.decorView).filterIsInstance<MaterialButton>().first { it.text.toString()==activity.getString(R.string.backup_restore) }.performClick()
+        val backup=ShadowDialog.getLatestDialog() as AlertDialog
+        backup.getButton(DialogInterface.BUTTON_POSITIVE).performClick()
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+        val request=shadowOf(activity).nextStartedActivityForResult
+        assertEquals(android.content.Intent.ACTION_CREATE_DOCUMENT,request.intent.action)
+        assertEquals("application/json",request.intent.type)
+        assertEquals(View.GONE,activity.findViewById<View>(R.id.adContainer).visibility)
+        controller.pause().stop().destroy()
+    }
+
+    @Test @Config(sdk = [35])
+    fun `restore rechecks pending GPS cleanup after preview`() {
+        shadowOf(application).grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+        val controller=launch();val activity=controller.get()
+        val file=File(application.cacheDir,"restore.json")
+        file.outputStream().use { BackupCodec.write(it,UserData(selectionName="Restaurado")) }
+        val before=UserDataRepository.get(application).snapshot()
+        activity.findViewById<View>(R.id.settingsButton).performClick()
+        views(ShadowDialog.getLatestDialog().window!!.decorView).filterIsInstance<MaterialButton>()
+            .first { it.text.toString()==activity.getString(R.string.backup_restore) }.performClick()
+        val backup=ShadowDialog.getLatestDialog() as AlertDialog
+        backup.getButton(DialogInterface.BUTTON_NEUTRAL).performClick()
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+        val request=shadowOf(activity).nextStartedActivityForResult
+        shadowOf(activity).receiveResult(request.intent,android.app.Activity.RESULT_OK,android.content.Intent().setData(android.net.Uri.fromFile(file)))
+        val deadline=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(5)
+        while (ShadowDialog.getLatestDialog() === backup && System.nanoTime()<deadline) {
+            shadowOf(android.os.Looper.getMainLooper()).idle();Thread.sleep(10)
+        }
+        val preview=ShadowDialog.getLatestDialog() as AlertDialog
+        assertNotSame(backup,preview)
+        SimulationStore(application).cleanupNeeded=true
+        preview.getButton(DialogInterface.BUTTON_POSITIVE).performClick()
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertEquals(before,UserDataRepository.get(application).snapshot())
+        assertFalse(BackupGuard.restoring.get())
+        controller.pause().stop().destroy()
+    }
+
+    @Test @Config(sdk = [35])
+    fun `damaged storage opens recovery instead of replacing saved places`() {
+        val file=File(application.filesDir,"userdata/user-data.json");file.parentFile!!.mkdirs();file.writeText("broken")
+        val controller=Robolectric.buildActivity(MainActivity::class.java).create()
+        val next=shadowOf(controller.get()).nextStartedActivity
+        assertEquals(DataRecoveryActivity::class.java.name,next.component!!.className)
+        assertEquals("broken",file.readText())
+        controller.destroy()
+    }
+
+
+    @Test @Config(sdk = [35])
+    fun `switching an imported provider geometry to direct mode preserves attribution`() {
+        AppPreferences(application).saveRoute(RouteDraft(listOf(Coordinates.DEFAULT,Coordinates(19.44,-99.14)),mode=RouteMode.IMPORTED,source="geoapify"))
+        val controller=launch();val activity=controller.get()
+        activity.findViewById<View>(R.id.routesButton).performClick()
+        val dialog=ShadowDialog.getLatestDialog()
+        views(dialog.window!!.decorView).filterIsInstance<android.widget.Spinner>().first().setSelection(RouteMode.DIRECT.ordinal)
+        views(dialog.window!!.decorView).filterIsInstance<MaterialButton>()
+            .first { it.text.toString()==activity.getString(R.string.edit_route) }.performClick()
+        assertEquals(RouteMode.DIRECT,AppPreferences(application).route().mode)
+        assertEquals("geoapify",AppPreferences(application).route().source)
         controller.pause().stop().destroy()
     }
 

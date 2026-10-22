@@ -9,6 +9,7 @@ import android.provider.Settings
 import android.text.Html
 import android.text.method.LinkMovementMethod
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
@@ -37,6 +38,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var lookup: PlaceLookup
     private lateinit var workspace: MapWorkspace
     private lateinit var deviceLocation: DeviceLocation
+    private lateinit var ads: AdsController
     private lateinit var root: View
     private lateinit var map: WebView
     private var selected = Coordinates.DEFAULT
@@ -49,19 +51,27 @@ class MainActivity : AppCompatActivity() {
     private var pendingRoute: Boolean? = null
     private var pendingPoint: Coordinates? = null
     private var exportPoints: List<Coordinates> = emptyList()
+    private var exportSource = ""
     private var bars = Insets.NONE
     private var receiverRegistered = false
     private var locateOnResume = true
     private var pendingCurrentLocation = false
     private val io = Executors.newSingleThreadExecutor()
+    private val routing = RoutingClient()
+    private var routeRevision = 0
+    private val backups = BackupController(this, beforeRestore = {
+        cancelDeviceLocation(); lookup.cancelReverse(); lookup.cancelSearch()
+        sheets.close(); locateOnResume = false
+    })
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == BackupController.ACTION_RESTORED) { reloadRestoredData(); return }
             if (intent?.action == ACTION_ROUTE_IMPORTED) {
                 routeDraft = preferences.route()
                 routeMode = true; editingRoute = false
                 routeDraft.points.firstOrNull()?.let { select(it, center = true) }
-                message(resources.getQuantityString(R.plurals.gpx_imported, routeDraft.points.size, routeDraft.points.size))
+                message(resources.getQuantityString(R.plurals.gpx_imported, routeDraft.editablePoints.size, routeDraft.editablePoints.size))
             }
             refreshStatus()
         }
@@ -73,10 +83,12 @@ class MainActivity : AppCompatActivity() {
             val prior = preferences.route()
             io.execute {
                 val result = runCatching {
-                    val points = context.contentResolver.openInputStream(uri)?.use(GpxCodec::read)
+                    val document = context.contentResolver.openInputStream(uri)?.use(GpxCodec::readDocument)
                         ?: throw IllegalArgumentException("No se pudo abrir el archivo.")
+                    val points = document.points
                     RouteNavigator(points, prior.speedKmh, prior.loop)
-                    AppPreferences(context).saveRoute(prior.copy(points = points))
+                    check(!BackupGuard.restoring.get()) { "Espera a que termine la restauración." }
+                    AppPreferences(context).saveRoute(RouteDraft(points, prior.speedKmh, prior.loop, mode = RouteMode.IMPORTED, source = document.source))
                     AppPreferences(context).routeWorkspace = true
                     points.size
                 }
@@ -89,10 +101,11 @@ class MainActivity : AppCompatActivity() {
     private val exportGpx = registerForActivityResult(ActivityResultContracts.CreateDocument("application/gpx+xml")) { uri ->
         if (uri != null && exportPoints.size >= 2) {
             val points = exportPoints.toList()
+            val source = exportSource
             val resolver = applicationContext.contentResolver
             io.execute {
                 val result = runCatching {
-                    resolver.openOutputStream(uri, "wt")?.use { GpxCodec.write(it, points) }
+                    resolver.openOutputStream(uri, "wt")?.use { GpxCodec.write(it, points, source) }
                         ?: throw IllegalArgumentException("No se pudo guardar el archivo.")
                 }
                 runOnUiThread { if (!isDestroyed) message(if (result.isSuccess) getString(R.string.gpx_exported)
@@ -102,7 +115,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        preferences = AppPreferences(this)
+        try { preferences = AppPreferences(this) }
+        catch (_: Exception) {
+            super.onCreate(savedInstanceState)
+            startActivity(Intent(this, DataRecoveryActivity::class.java)); finish(); return
+        }
         super.onCreate(savedInstanceState)
         if (preferences.dynamicColor) DynamicColors.applyToActivityIfAvailable(this)
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -113,6 +130,8 @@ class MainActivity : AppCompatActivity() {
         deviceLocation = DeviceLocation(this)
         setContentView(R.layout.activity_main)
         root = findViewById(R.id.contentRoot)
+        ads = AdsController(this, findViewById(R.id.adContainer)) { adaptLayout() }
+        ads.start()
         map = findViewById(R.id.map)
         selected = store.selection()
         selectedName = store.selectionName
@@ -124,19 +143,22 @@ class MainActivity : AppCompatActivity() {
         exportPoints = savedInstanceState?.getDoubleArray("exportPoints")?.toList()?.chunked(2)?.mapNotNull {
             if (it.size == 2) Coordinates.from(it[0], it[1]) else null
         }.orEmpty()
-        locateOnResume = savedInstanceState?.getBoolean("locateOnResume", false) ?: true
+        exportSource = savedInstanceState?.getString("exportSource", "").orEmpty()
+        locateOnResume = savedInstanceState?.getBoolean("locateOnResume", false) ?: !intent.getBooleanExtra("skipInitialFix", false)
+        intent.removeExtra("skipInitialFix")
         workspace = MapWorkspace(this, map, ::mapSelected, onMoveRoutePoint = { index, point ->
-            val points = routeDraft.points.toMutableList()
+            val points = routeDraft.editablePoints.toMutableList()
             if (index in points.indices) {
                 points[index] = point
-                saveDraft(routeDraft.copy(points = points))
+                saveDraft(routeDraft.edited(points))
                 select(point, center = false)
                 refreshStatus()
             }
         }, onError = { message(it) })
         applyMapStyle()
-        workspace.restore(savedInstanceState, selected)
-        select(selected, center = false, name = selectedName, address = store.selectionAddress, reverse = false)
+        workspace.restore(if (intent.getBooleanExtra("restoreCamera", false)) null else savedInstanceState, selected)
+        intent.removeExtra("restoreCamera")
+        select(selected, center = false, name = selectedName, address = store.selectionAddress, reverse = false, persist = false)
         pendingCurrentLocation = savedInstanceState?.getBoolean("pendingCurrentLocation", false) ?: false
         bindActions()
         findViewById<TextView>(R.id.attributionText).apply {
@@ -182,15 +204,19 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.settingsButton).setOnClickListener {
             sheets.settings(preferences, onSave = { options, dynamic ->
                 val changed = preferences.dynamicColor != dynamic
-                preferences.saveOptions(options)
-                preferences.dynamicColor = dynamic
+                preferences.saveSettings(options, dynamic)
                 if (MockLocationService.isRunning) sendService(MockLocationService.ACTION_OPTIONS)
                 message(getString(R.string.options_saved))
                 if (changed) root.post { recreate() }
-            }, onDeveloper = { developerGuide() })
+            }, onDeveloper = { developerGuide() }, onBackup = { backups.show() },
+                privacyOptionsRequired = ads.privacyOptionsRequired, onPrivacyOptions = { ads.privacyOptions() },
+                onPrivacyPolicy = { startActivity(Intent(this, PrivacyActivity::class.java)) })
         }
         findViewById<View>(R.id.layersButton).setOnClickListener {
-            sheets.mapAppearance(preferences.mapStyle) { preferences.mapStyle = it; applyMapStyle() }
+            sheets.mapAppearance(preferences.mapStyle) {
+                try { preferences.mapStyle = it; applyMapStyle() }
+                catch (e: Exception) { message("No se pudo guardar la apariencia: ${e.message}") }
+            }
         }
         findViewById<View>(R.id.centerButton).setOnClickListener {
             val active = MockLocationService.snapshot
@@ -201,9 +227,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.stopButton).setOnClickListener { sendService(MockLocationService.ACTION_STOP) }
         findViewById<View>(R.id.pauseButton).setOnClickListener { sendService(MockLocationService.ACTION_TOGGLE_PAUSE) }
         findViewById<View>(R.id.undoButton).setOnClickListener {
-            if (routeDraft.points.isNotEmpty()) {
-                saveDraft(routeDraft.copy(points = routeDraft.points.dropLast(1)))
-                routeDraft.points.lastOrNull()?.let { select(it, false) }
+            if (routeDraft.editablePoints.isNotEmpty()) {
+                saveDraft(routeDraft.edited(routeDraft.editablePoints.dropLast(1)))
+                routeDraft.editablePoints.lastOrNull()?.let { select(it, false) }
                 refreshStatus()
             }
         }
@@ -212,30 +238,31 @@ class MainActivity : AppCompatActivity() {
 
     private fun mapSelected(point: Coordinates) {
         if (editingRoute) {
-            if (routeDraft.points.size >= RouteNavigator.MAX_POINTS) { message(getString(R.string.route_max_points)); return }
-            if (routeDraft.points.lastOrNull() != point) saveDraft(routeDraft.copy(points = routeDraft.points + point))
+            if (routeDraft.editablePoints.size >= if (routeDraft.mode == RouteMode.STREET) 20 else RouteNavigator.MAX_POINTS) { message(getString(R.string.route_max_points)); return }
+            if (routeDraft.editablePoints.lastOrNull() != point) saveDraft(routeDraft.edited(routeDraft.editablePoints + point))
         } else routeMode = false
         select(point, center = false, reverse = !editingRoute)
         refreshStatus()
     }
 
-    private fun select(point: Coordinates, center: Boolean, name: String = getString(R.string.selected_point), address: String = "", reverse: Boolean = true) {
+    private fun select(point: Coordinates, center: Boolean, name: String = getString(R.string.selected_point), address: String = "", reverse: Boolean = true, persist: Boolean = true) {
         cancelDeviceLocation()
+        if (BackupGuard.restoring.get()) return
+        if (persist) try { store.saveSelection(point, name, address) }
+            catch (e: Exception) { message("No se pudo guardar la ubicación: ${e.message}"); return }
         selected = point
         selectedName = name
         selectedAddress = address
-        store.saveSelection(point)
-        store.selectionName = name
-        store.selectionAddress = address
         workspace.select(point, center)
         displaySelection()
         if (reverse) lookup.reverse(point) { place ->
             if (place != null && selected == point) {
-                if (selectedName == getString(R.string.selected_point)) selectedName = place.title
-                selectedAddress = place.address
-                store.selectionName = selectedName
-                store.selectionAddress = selectedAddress
-                displaySelection()
+                val title = if (selectedName == getString(R.string.selected_point)) place.title else selectedName
+                try {
+                    store.saveSelection(point, title, place.address)
+                    selectedName = title; selectedAddress = place.address
+                    displaySelection()
+                } catch (e: Exception) { message("No se pudo guardar la dirección: ${e.message}") }
             }
         }
     }
@@ -255,22 +282,49 @@ class MainActivity : AppCompatActivity() {
     private fun showRoutes() {
         sheets.routes(routeDraft,
             onEdit = {
-                val points = it.points.ifEmpty { listOf(selected) }
-                saveDraft(it.copy(points = points)); routeMode = true; editingRoute = true
+                val points = it.editablePoints.ifEmpty { listOf(selected) }
+                saveDraft(it.edited(points)); routeMode = true; editingRoute = true
                 refreshStatus(); message(getString(R.string.route_edit_hint))
             },
             onStart = { saveDraft(it); routeMode = true; editingRoute = false; refreshStatus(); requestSimulation(true) },
             onImport = { saveDraft(it); importGpx.launch(arrayOf("application/gpx+xml", "application/xml", "text/xml", "application/octet-stream", "*/*")) },
-            onExport = { saveDraft(it); exportPoints = it.points.toList(); exportGpx.launch("gps-mocker-ruta.gpx") },
-            onClear = { saveDraft(routeDraft.copy(points = emptyList())); editingRoute = false; routeMode = false; refreshStatus() })
+            onExport = { saveDraft(it); exportPoints = it.points.toList(); exportSource = it.source; exportGpx.launch("gps-mocker-ruta.gpx") },
+            onClear = { saveDraft(RouteDraft(speedKmh = routeDraft.speedKmh)); editingRoute = false; routeMode = false; refreshStatus() },
+            onCalculate = { draft ->
+                if (draft.waypoints.size < 2) message("Elige al menos dos puntos en el mapa.")
+                else {
+                    routing.cancel(); val expected = ++routeRevision
+                    routeMode = true; editingRoute = false; refreshStatus()
+                    message("Calculando recorrido por calles…")
+                    routing.calculate(draft) { result ->
+                        if (expected == routeRevision && !BackupGuard.restoring.get()) result.fold({
+                            saveDraft(it); refreshStatus(); showRoutes()
+                        }, { message(it.message ?: "No se pudo calcular la ruta. Se conserva el recorrido anterior.") })
+                    }
+                }
+            })
     }
 
-    private fun saveDraft(draft: RouteDraft) { routeDraft = draft; preferences.saveRoute(draft) }
+    private fun saveDraft(draft: RouteDraft) {
+        try { preferences.saveRoute(draft); routeDraft = draft; routeRevision++; routing.cancel() }
+        catch (e: Exception) { message("No se pudo guardar la ruta: ${e.message}") }
+    }
+    private fun reloadRestoredData() {
+        cancelDeviceLocation(); lookup.cancelReverse(); routing.cancel(); routeRevision++
+        preferences.routeWorkspace = false; routeMode = false; editingRoute = false; locateOnResume = false
+        intent.putExtra("skipInitialFix", true)
+        intent.putExtra("restoreCamera", true)
+        recreate()
+    }
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean =
+        if (BackupGuard.restoring.get()) true else super.dispatchTouchEvent(event)
 
     private fun requestSimulation(route: Boolean, target: Coordinates = selected) {
+        if (BackupGuard.restoring.get()) { message("Espera a que termine la restauración."); return }
+        routing.cancel(); routeRevision++
         cancelDeviceLocation()
         if (route) {
-            try { RouteNavigator(routeDraft.points, routeDraft.speedKmh, routeDraft.loop) }
+            try { require(routeDraft.ready) { "Calcula la ruta por calles antes de comenzar." }; RouteNavigator(routeDraft.points, routeDraft.speedKmh, routeDraft.loop) }
             catch (error: IllegalArgumentException) { message(error.message ?: getString(R.string.route_need_points)); return }
         }
         if (!MockPermissions.isMockApp(this)) { developerGuide(); return }
@@ -321,7 +375,7 @@ class MainActivity : AppCompatActivity() {
             state?.paused == true -> getString(R.string.route_paused)
             state?.routePoints?.isNotEmpty() == true -> getString(R.string.route_running)
             state != null -> getString(R.string.simulation_badge)
-            editingRoute -> resources.getQuantityString(R.plurals.route_editor_badge, routeDraft.points.size, routeDraft.points.size)
+            editingRoute -> resources.getQuantityString(R.plurals.route_editor_badge, routeDraft.editablePoints.size, routeDraft.editablePoints.size)
             deviceLocation.searching -> getString(R.string.current_location_searching)
             else -> getString(R.string.select_point_hint)
         }
@@ -338,8 +392,8 @@ class MainActivity : AppCompatActivity() {
             icon = if (pause.visibility == View.VISIBLE) null else AppCompatResources.getDrawable(this@MainActivity, R.drawable.ic_play)
         }
         findViewById<View>(R.id.routeBanner).visibility = if (editingRoute) View.VISIBLE else View.GONE
-        findViewById<TextView>(R.id.routeEditHint).text = resources.getQuantityString(R.plurals.route_editor_badge, routeDraft.points.size, routeDraft.points.size)
-        findViewById<View>(R.id.undoButton).isEnabled = routeDraft.points.isNotEmpty()
+        findViewById<TextView>(R.id.routeEditHint).text = resources.getQuantityString(R.plurals.route_editor_badge, routeDraft.editablePoints.size, routeDraft.editablePoints.size)
+        findViewById<View>(R.id.undoButton).isEnabled = routeDraft.editablePoints.isNotEmpty()
         val progress = state?.routePoints?.isNotEmpty() == true
         findViewById<View>(R.id.routeProgressRow).visibility = if (progress) View.VISIBLE else View.GONE
         if (progress) {
@@ -347,8 +401,12 @@ class MainActivity : AppCompatActivity() {
             findViewById<TextView>(R.id.routeProgressText).text = getString(R.string.route_progress,
                 (state.fraction * 100).toInt(), String.format(Locale.getDefault(), "%.1f", state.speedKmh))
         }
+        val source = if (routeMode || editingRoute) routeDraft.source else preferences.route().source
+        findViewById<TextView>(R.id.attributionText).text = Html.fromHtml(
+            "© <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> · <a href=\"https://openmaptiles.org\">OpenMapTiles</a> · <a href=\"https://openfreemap.org\">OpenFreeMap</a>" +
+                if (source == "geoapify") " · <a href=\"https://www.geoapify.com/\">Powered by Geoapify</a>" else "", Html.FROM_HTML_MODE_LEGACY)
         workspace.active(state?.coordinates)
-        workspace.route(if (routeMode || editingRoute) routeDraft.points else state?.routePoints.orEmpty(), editingRoute)
+        workspace.route(if (editingRoute) routeDraft.editablePoints else if (routeMode) routeDraft.points else state?.routePoints.orEmpty(), editingRoute)
     }
 
     private fun share() {
@@ -432,12 +490,16 @@ class MainActivity : AppCompatActivity() {
                 view.layoutParams = params
             }
         }
+        val adContainer = findViewById<FrameLayout>(R.id.adContainer)
+        ads.spaceAvailable(!wide && root.width - bars.left - bars.right >= dp(352) && root.height - bars.top - bars.bottom >= dp(650))
+        val adSpace = if (adContainer.visibility == View.VISIBLE) dp(66) else 0
+        margins(R.id.adContainer, dp(320), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL, bars.left, 0, bars.right, bars.bottom, dp(50))
         val card = findViewById<MaterialCardView>(R.id.locationCard)
-        val maximum = if (wide) root.height - bars.top - bars.bottom - dp(24)
-            else ((root.height - bars.top - bars.bottom) * 0.58).toInt()
+        val maximum = if (wide) root.height - bars.top - bars.bottom - dp(24) - adSpace
+            else ((root.height - bars.top - bars.bottom - adSpace) * 0.58).toInt()
         findViewById<BoundedScrollView>(R.id.locationScroll).maximumHeight = maximum.coerceAtLeast(dp(200))
         margins(R.id.locationCard, if (wide) dp(360) else -1, Gravity.BOTTOM or if (wide) Gravity.END else Gravity.CENTER_HORIZONTAL,
-            bars.left + dp(12), if (wide) bars.top + dp(12) else 0, bars.right + dp(12), bars.bottom + dp(12), -2)
+            bars.left + dp(12), if (wide) bars.top + dp(12) else 0, bars.right + dp(12), bars.bottom + dp(12) + adSpace, -2)
         val searchWidth = if (wide) (root.width - dp(404) - bars.left - bars.right).coerceAtLeast(dp(180)) else -1
         margins(R.id.searchCard, searchWidth, Gravity.TOP or Gravity.START,
             bars.left + dp(16), bars.top + dp(12), bars.right + dp(16), 0)
@@ -445,9 +507,9 @@ class MainActivity : AppCompatActivity() {
             bars.left + dp(16), bars.top + dp(84), bars.right + dp(16), 0)
         val cardHeight = card.height
         margins(R.id.mapControls, dp(56), Gravity.BOTTOM or if (wide) Gravity.START else Gravity.END,
-            bars.left + dp(16), 0, bars.right + dp(16), bars.bottom + dp(24) + if (wide) 0 else cardHeight)
+            bars.left + dp(16), 0, bars.right + dp(16), bars.bottom + adSpace + dp(24) + if (wide) 0 else cardHeight)
         margins(R.id.attributionText, -2, Gravity.BOTTOM or Gravity.START, bars.left + dp(16), 0,
-            bars.right + dp(90), bars.bottom + if (wide) dp(4) else cardHeight + dp(16))
+            bars.right + dp(90), bars.bottom + adSpace + if (wide) dp(4) else cardHeight + dp(16))
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
@@ -471,14 +533,16 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
+        if (!::workspace.isInitialized) return
         ContextCompat.registerReceiver(this, receiver, IntentFilter().apply {
-            addAction(MockLocationService.ACTION_STATUS); addAction(ACTION_ROUTE_IMPORTED)
+            addAction(MockLocationService.ACTION_STATUS); addAction(ACTION_ROUTE_IMPORTED); addAction(BackupController.ACTION_RESTORED)
         }, ContextCompat.RECEIVER_NOT_EXPORTED)
         receiverRegistered = true
     }
 
     override fun onResume() {
         super.onResume()
+        if (!::workspace.isInitialized) return
         map.onResume()
         val latest = preferences.route()
         if (latest.points != routeDraft.points && preferences.routeWorkspace) {
@@ -486,16 +550,20 @@ class MainActivity : AppCompatActivity() {
             latest.points.firstOrNull()?.let { select(it, true) }
         }
         routeDraft = latest
+        if (!BackupGuard.restoring.get() && selected != store.selection()) {
+            select(store.selection(), true, store.selectionName, store.selectionAddress, reverse = false, persist = false)
+        }
         routeMode = preferences.routeWorkspace
         refreshStatus()
         if (locateOnResume) {
             locateOnResume = false
-            if (!MockLocationService.isRunning && !store.cleanupNeeded) locateDevice()
+            if (!BackupGuard.restoring.get() && !MockLocationService.isRunning && !store.cleanupNeeded) locateDevice()
         }
     }
 
-    override fun onPause() { map.onPause(); super.onPause() }
+    override fun onPause() { if (::map.isInitialized) map.onPause(); super.onPause() }
     override fun onStop() {
+        if (!::deviceLocation.isInitialized) { super.onStop(); return }
         if (deviceLocation.searching) locateOnResume = true
         cancelDeviceLocation()
         if (receiverRegistered) unregisterReceiver(receiver)
@@ -504,6 +572,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        if (!::workspace.isInitialized) { super.onSaveInstanceState(outState); return }
         workspace.save(outState)
         outState.putBoolean("editingRoute", editingRoute)
         outState.putBoolean("routeMode", routeMode)
@@ -511,13 +580,15 @@ class MainActivity : AppCompatActivity() {
         outState.putBoolean("pendingCurrentLocation", pendingCurrentLocation)
         pendingRoute?.let { outState.putBoolean("pendingRoute", it) }
         pendingPoint?.let { outState.putDouble("pendingLatitude", it.latitude); outState.putDouble("pendingLongitude", it.longitude) }
+        outState.putString("exportSource", exportSource)
         if (exportPoints.isNotEmpty()) outState.putDoubleArray("exportPoints", exportPoints.flatMap { listOf(it.latitude, it.longitude) }.toDoubleArray())
         super.onSaveInstanceState(outState)
     }
 
     override fun onDestroy() {
+        if (!::workspace.isInitialized) { backups.close(); routing.close(); io.shutdown(); super.onDestroy(); return }
         deviceLocation.cancel()
-        sheets.close(); lookup.close(); io.shutdown(); workspace.close()
+        ads.close(); routing.close(); backups.close(); sheets.close(); lookup.close(); io.shutdown(); workspace.close()
         super.onDestroy()
     }
 

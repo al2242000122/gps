@@ -37,7 +37,9 @@
     if (source) source.setData(data);
     else {
       map.addSource('gps-route', { type: 'geojson', data });
-      map.addLayer({ id: 'gps-route', type: 'line', source: 'gps-route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#2878f5', 'line-width': 5, 'line-opacity': 0.85 } });
+      const labels = map.getStyle().layers.find(layer => layer.type === 'symbol')?.id;
+      map.addLayer({ id: 'gps-route-casing', type: 'line', source: 'gps-route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 8, 'line-opacity': 0.9 } }, labels);
+      map.addLayer({ id: 'gps-route', type: 'line', source: 'gps-route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#2878f5', 'line-width': 5, 'line-opacity': 0.85 } }, labels);
     }
     const key = JSON.stringify([points, !!state.editing]);
     if (key === routeKey) return;

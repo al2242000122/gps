@@ -7,3 +7,12 @@ local.properties
 *.jks
 *.keystore
 .DS_Store
+rescue-*/
+*.p12
+*.pem
+.env
+.wrangler/
+node_modules/
+.scratch/
+__pycache__/
+*.pyc

@@ -19,6 +19,7 @@ import java.time.Duration
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28, 35])
 class DeviceLocationTest {
+    @get:org.junit.Rule val userDataRule = UserDataTestRule()
     private val context: Application get() = RuntimeEnvironment.getApplication()
     private val manager get() = context.getSystemService(LocationManager::class.java)
     private val now = 1_000_000_000_000L

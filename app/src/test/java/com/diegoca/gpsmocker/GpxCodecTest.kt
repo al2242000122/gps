@@ -11,6 +11,7 @@ import java.io.ByteArrayOutputStream
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])
 class GpxCodecTest {
+    @get:org.junit.Rule val userDataRule = UserDataTestRule()
     @Test fun `exports a GPX 1_1 track that imports without losing coordinates`() {
         val points = listOf(Coordinates(19.504413, -99.182974), Coordinates(19.51, -99.18))
         val output = ByteArrayOutputStream()
@@ -39,5 +40,16 @@ class GpxCodecTest {
         assertThrows(IllegalArgumentException::class.java) { GpxCodec.read(ByteArray(GpxCodec.MAX_BYTES + 1).inputStream()) }
         val gpx = "<gpx><trk>" + (0..RouteNavigator.MAX_POINTS).joinToString("") { "<trkpt lat='1' lon='2'/>" } + "</trk></gpx>"
         assertThrows(IllegalArgumentException::class.java) { GpxCodec.read(gpx.byteInputStream()) }
+    }
+
+    @Test fun `Geoapify attribution survives GPX export and import`() {
+        val bytes=java.io.ByteArrayOutputStream()
+        val points=listOf(Coordinates.DEFAULT,Coordinates(19.44,-99.14))
+        GpxCodec.write(bytes,points,"geoapify")
+        val xml=bytes.toString("UTF-8")
+        assertTrue(xml.contains("https://www.geoapify.com/"))
+        assertTrue(xml.contains("https://www.openstreetmap.org/copyright"))
+        val document=GpxCodec.readDocument(bytes.toByteArray().inputStream())
+        assertEquals(points,document.points);assertEquals("geoapify",document.source)
     }
 }

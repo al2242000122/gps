@@ -91,3 +91,16 @@ npx skills add wshobson/agents@mobile-android-design
 ## Estado
 
 La investigación y su selección están documentadas. Las nuevas candidatas quedan evaluadas para los pendientes correspondientes; esta tarea no las instala ni ejecuta cambios de arquitectura, auditorías, firma, anuncios o publicación. `find-skills` se utilizó para la búsqueda y `mobile-android-design` ya se había aplicado al diseño.
+
+## Aplicación en 0.4.0
+
+- `testing-setup`: se respetaron JUnit/Robolectric y Views existentes, ampliando pruebas de persistencia, corrupción, restauración y rutas. No se incorporaron Hilt/Compose ni una migración de arquitectura innecesaria. Protocolo: [PRUEBAS.md](PRUEBAS.md).
+- `android-permissions-security`: revisión de SAF, componentes privados, permisos en tiempo de uso y recuperación; se excluyeron Advertising ID y estado básico del teléfono del manifiesto combinado.
+- `github-actions-hardening`: revisión de triggers, permisos, SHA y manejo de claves; informe y correcciones en [CI_REVIEW.md](CI_REVIEW.md).
+- `maplibre-cartography`: recorrido azul con borde claro por debajo de las etiquetas y atribución enlazada del proveedor. Se conservaron el estilo claro y los controles actuales.
+- `mobile-android-design`: continuidad del diseño Material 3, espacio inferior para el banner, acciones de respaldo y privacidad e icono adaptativo.
+- `play-policy-insights`: se ejecutaron init, siete objetivos, verificación crítica y generación de informe siguiendo el protocolo. Resultado Needs Review, con declaración FGS y formularios previos a publicación pendientes. No existía ficha Play para contrastar declaraciones. Los falsos positivos de audio/fitness por nombres `record`/`track` se revisaron; el formulario de datos requiere contrastar además proveedores y SDK reales.
+- `aso`: se aplicaron límites de nombre/descripciones y una presentación centrada en funciones verificables a la ficha propuesta en [PUBLICACION.md](PUBLICACION.md). No se presentó una auditoría de conversión inexistente.
+- `android-profiler`: guía revisada; medición y análisis de trazas pendientes de dispositivo conectado. Se preparó el protocolo, sin atribuirle mediciones que no se ejecutaron.
+
+El informe automatizado íntegro de Play queda en el workspace de la auditoría (`.scratch/play_policy_insights_40ed8f12-b0e4-4eb6-add0-f41ab6d64fd3/compliance_report.md`). La carpeta se excluye de Git; las conclusiones y limitaciones relevantes se recogen en la documentación de publicación.

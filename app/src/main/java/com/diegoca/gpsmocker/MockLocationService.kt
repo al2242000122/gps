@@ -88,13 +88,14 @@ open class MockLocationService : Service() {
     }
 
     private fun startSimulation(intent: Intent) {
+        check(!BackupGuard.restoring.get()) { "Espera a que termine la restauración." }
         if (!MockPermissions.hasLocation(this) || !MockPermissions.isMockApp(this)) {
             throw SecurityException(getString(R.string.permission_or_mock_error))
         }
         check(MockPermissions.locationEnabled(this)) { getString(R.string.enable_location) }
         options = AppPreferences(this).options()
         val route = if (intent.action == ACTION_START_ROUTE) AppPreferences(this).route() else null
-        val newNavigator = route?.let { RouteNavigator(it.points, it.speedKmh, it.loop) }
+        val newNavigator = route?.let { require(it.ready) { "Calcula la ruta antes de comenzar." }; RouteNavigator(it.points, it.speedKmh, it.loop) }
         val target = newNavigator?.position() ?: Coordinates.from(
             intent.getDoubleExtra(EXTRA_LATITUDE, Double.NaN), intent.getDoubleExtra(EXTRA_LONGITUDE, Double.NaN)
         ) ?: throw IllegalArgumentException(getString(R.string.invalid_coordinates))
