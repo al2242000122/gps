@@ -36,7 +36,7 @@ La cuota se comparte entre todas las instalaciones: 100 intentos por ventana mó
 
 Geoapify Free ofrece 3.000 **créditos**, no 3.000 rutas, por día y hasta 5 solicitudes/s. Una solicitud con N puntos consume normalmente N−1 créditos. Sus cuotas son blandas y puede haber recargos por distancia; estos controles no son garantía contractual de coste cero. Supervisa el panel y mantén la cuenta Free sin método de pago ni plan adicional. El cupo público puede agotarse por otros usuarios; el modo manual permanece disponible.
 
-Solo se envían puntos y perfil. El proxy no reenvía IP, cookies, autorización ni identificadores del teléfono. Cloudflare procesa la conexión y Geoapify recibe las coordenadas: no se afirma anonimato. Los contadores guardan tiempo y créditos, no recorridos. Fuentes: [precios](https://www.geoapify.com/pricing/), [créditos](https://www.geoapify.com/pricing-details/), [DPA](https://www.geoapify.com/data-processing-agreement/), [Routing](https://apidocs.geoapify.com/docs/routing/).
+Solo se envían puntos y perfil. El proxy construye cabeceras nuevas sin copiar cookies, autorización ni identificadores del teléfono. Cloudflare procesa la conexión y Geoapify recibe las coordenadas y los metadatos de su solicitud; los proveedores pueden tratar metadatos operativos de red. No se afirma anonimato. Los contadores guardan tiempo y créditos, no recorridos. Fuentes: [precios](https://www.geoapify.com/pricing/), [créditos](https://www.geoapify.com/pricing-details/), [DPA](https://www.geoapify.com/data-processing-agreement/), [Routing](https://apidocs.geoapify.com/docs/routing/).
 
 ## Banner de AdMob
 

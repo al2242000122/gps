@@ -87,7 +87,7 @@ export default {
       const upstream=new URL('https://api.geoapify.com/v1/routing');
       upstream.search=new URLSearchParams({apiKey:env.GEOAPIFY_KEY,waypoints:input.points.map(p=>p.join(',')).join('|'),
         mode:input.profile,type:'balanced',intermediate_waypoint_mode:'through_stop',units:'metric',lang:'es',format:'geojson'});
-      // Build fresh headers: never forward client IP, cookies, IDs or Authorization.
+      // Build fresh headers without copying client cookies, IDs or Authorization.
       const response=await fetch(upstream,{headers:{Accept:'application/json'},signal:AbortSignal.timeout(20000),redirect:'error'});
       if (!response.ok) return error(response.status===429 || response.status===403 ? 429 : response.status===400 || response.status===404 ? 422 : 502,'ROUTING_FAILED');
       const bytes=await readBounded(response.body,2*1024*1024);

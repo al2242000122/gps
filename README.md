@@ -6,7 +6,7 @@ App Android en Kotlin para seleccionar puntos en un mapa y simular ubicaciones d
 
 1. Abre **Actions → Compilar APK Android** en GitHub y una ejecución verde de la rama que quieres probar.
 2. Descarga el artefacto `gps-mocker-debug-N`, extrae el ZIP e instala `app-debug.apk`.
-3. Esta versión se llama **GPS Mocker Dev** y puede convivir con la app anterior. Elígela en **Opciones de desarrollador → Seleccionar aplicación de ubicación simulada**. El acceso de la app intenta resaltar esa opción; algunos fabricantes exigen buscarla manualmente.
+3. Esta versión se llama **GPS Mocker Dev** y puede convivir con la app anterior. Pulsa **Detener** en la app anterior antes de cambiar de aplicación simulada. Después elígela en **Opciones de desarrollador → Seleccionar aplicación de ubicación simulada**. El acceso de la app intenta resaltar esa opción; algunos fabricantes exigen buscarla manualmente.
 4. Activa la ubicación, concede permiso y elige un punto desde el mapa. **Comenzar** inicia la simulación; **Actualizar** aplica un punto nuevo. **Detener**, también disponible en la notificación, restaura el GPS.
 
 Conserva la app antigua hasta recuperar sus datos. Las firmas de depuración pueden variar entre ejecuciones. [Respaldo, rescate por USB y transición a firma estable](docs/RESPALDO_Y_FIRMA.md).

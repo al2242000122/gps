@@ -2,7 +2,7 @@
 
 ## Probar desde el celular
 
-La compilación de desarrollo se llama **GPS Mocker Dev**, paquete `com.diegoca.gpsmocker.debug`. Puede coexistir con los APK anteriores (`com.diegoca.gpsmocker`). Selecciona **GPS Mocker Dev** en las opciones de desarrollador para probarla. La firma de desarrollo puede variar entre ejecuciones; exporta un respaldo antes de reemplazar una instalación Dev incompatible.
+La compilación de desarrollo se llama **GPS Mocker Dev**, paquete `com.diegoca.gpsmocker.debug`. Puede coexistir con los APK anteriores (`com.diegoca.gpsmocker`). Pulsa **Detener** en la app anterior antes de cambiar y selecciona **GPS Mocker Dev** en las opciones de desarrollador para probarla. La firma de desarrollo puede variar entre ejecuciones; exporta un respaldo antes de reemplazar una instalación Dev incompatible.
 
 La distribución estable conservará `com.diegoca.gpsmocker` y una firma permanente. Todavía requiere crear y custodiar las claves del propietario. El APK actual de prueba no permite recuperar por arte de magia la clave de una ejecución antigua.
 
