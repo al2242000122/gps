@@ -1,0 +1,9 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gps-mocker-routing",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-22",
+  "observability": { "enabled": false },
+  "durable_objects": { "bindings": [{ "name": "BUDGET", "class_name": "RoutingBudget" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RoutingBudget"] }]
+}

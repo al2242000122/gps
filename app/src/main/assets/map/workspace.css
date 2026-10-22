@@ -1,0 +1,9 @@
+html, body, #map { height: 100%; width: 100%; margin: 0; overflow: hidden; background: #f1f4f8; }
+body { font-family: system-ui, sans-serif; color-scheme: only light; }
+.selected-pin { width: 40px; height: 48px; cursor: grab; }
+.selected-pin svg { display: block; filter: drop-shadow(0 2px 3px #18385533); }
+.waypoint, .live-dot { width: 28px; height: 28px; box-sizing: border-box; border: 2px solid white; border-radius: 50%; background: #2878f5; color: white; display: grid; place-items: center; font: 600 12px system-ui, sans-serif; box-shadow: 0 2px 6px #18385533; }
+.live-dot { width: 18px; height: 18px; }
+#map-error { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(72%, 300px); padding: 16px; box-sizing: border-box; border-radius: 16px; background: #fff; color: #233148; box-shadow: 0 3px 14px #0002; font-size: 14px; }
+#map-error[hidden] { display: none; }
+#retry { min-height: 48px; margin-top: 8px; padding: 0 16px; border: 0; border-radius: 12px; background: #2878f5; color: white; font: 600 14px system-ui, sans-serif; }
