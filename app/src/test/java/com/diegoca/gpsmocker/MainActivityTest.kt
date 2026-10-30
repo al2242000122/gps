@@ -469,6 +469,37 @@ class MainActivityTest {
         controller.pause().stop().destroy()
     }
 
+    @Test fun `manual commit finishes after recreation and closes the restored editor`() {
+        AppPreferences(application).routeWorkspace = true
+        val controller = launch()
+        controller.get().findViewById<Button>(R.id.editCoordinatesButton).clickAndSettle()
+        val dialog = ShadowDialog.getLatestDialog()
+        dialog.findViewById<EditText>(R.id.manualLatitudeInput).setText("10")
+        dialog.findViewById<EditText>(R.id.manualLongitudeInput).setText("20")
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        UserDataWork.submit({
+            entered.countDown()
+            check(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        }, {})
+        try {
+            assertTrue(entered.await(2, java.util.concurrent.TimeUnit.SECONDS))
+            dialog.findViewById<Button>(R.id.applyManualCoordinates).performClick()
+            controller.recreate()
+            release.countDown()
+            settleDataWork()
+            assertEquals(Coordinates(10.0, 20.0), SimulationStore(application).selection())
+            assertFalse(AppPreferences(application).routeWorkspace)
+            assertFalse(ShadowDialog.getLatestDialog().isShowing)
+            assertEquals("10.000000, 20.000000", controller.get().findViewById<TextView>(R.id.coordinatesText).text.toString())
+            assertNull(shadowOf(application).nextStartedService)
+        } finally {
+            release.countDown()
+            settleDataWork()
+            controller.pause().stop().destroy()
+        }
+    }
+
     private fun View.clickAndSettle(): Boolean {
         val clicked = performClick()
         settleDataWork()

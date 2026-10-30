@@ -60,7 +60,8 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
         unitTests.all {
-            it.maxHeapSize = "1g"
+            it.maxHeapSize = "2g"
+            it.forkEvery = 1
             providers.gradleProperty("legacyBackup").orNull?.let { path -> it.systemProperty("gps.backup.path", path); it.inputs.file(path) }
         }
     }

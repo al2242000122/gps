@@ -42,8 +42,8 @@ class BackupController(private val activity: AppCompatActivity, private val befo
         MaterialAlertDialogBuilder(activity).setTitle("Reemplazar los datos actuales")
             .setMessage("${DateFormat.getDateTimeInstance().format(Date(backup.exportedAt))}\n\n${d.favorites.size} favoritos · ${d.history.size} recientes\n${d.route.editablePoints.size} puntos elegidos · ${d.route.points.size} vértices de ruta\n\nSe reemplazarán tus datos y ajustes por los de este archivo. La simulación seguirá detenida.")
             .setNegativeButton(R.string.cancel, null).setPositiveButton("Restaurar") { _,_ ->
-                if (MockLocationService.isRunning || SimulationStore(activity).cleanupNeeded || !BackupGuard.restoring.compareAndSet(false, true)) {
-                    notice("Detén la simulación y completa la restauración del GPS antes de importar.")
+                if (UserDataWork.pending > 0 || MockLocationService.isRunning || SimulationStore(activity).cleanupNeeded || !BackupGuard.restoring.compareAndSet(false, true)) {
+                    notice("Espera a que se guarden los cambios, detén la simulación y completa la restauración del GPS antes de importar.")
                 } else {
                     beforeRestore()
                     scope.launch {

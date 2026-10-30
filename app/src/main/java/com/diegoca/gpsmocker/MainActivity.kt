@@ -37,6 +37,7 @@ import java.util.concurrent.Executors
 class MainActivity : AppCompatActivity() {
     private val dataModel by lazy { ViewModelProvider(this)[UserDataViewModel::class.java] }
     private var renderedDataRevision = -1L
+    private var renderedManualApplied = 0L
     private lateinit var store: SimulationStore
     private lateinit var preferences: AppPreferences
     private lateinit var library: PlaceLibrary
@@ -123,6 +124,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        renderedManualApplied = savedInstanceState?.getLong("manualApplied", 0L) ?: 0L
         setContentView(TextView(this).apply {
             text = getString(R.string.loading_user_data)
             gravity = Gravity.CENTER
@@ -141,6 +143,12 @@ class MainActivity : AppCompatActivity() {
                     if (selected != store.selection()) select(store.selection(), false, store.selectionName,
                         store.selectionAddress, reverse = false, persist = false)
                     refreshFavorite()
+                    refreshStatus()
+                }
+                if (::workspace.isInitialized && state.manualApplied > renderedManualApplied) {
+                    renderedManualApplied = state.manualApplied
+                    sheets.closeCoordinates()
+                    routeMode = false; editingRoute = false
                     refreshStatus()
                 }
             }
@@ -300,7 +308,7 @@ class MainActivity : AppCompatActivity() {
         sheets.coordinates(draft, onDraftChanged = { coordinateDraft = it }, onChoose = { point, complete ->
             // Selecting a point never starts or updates a running simulation.
             // Preserve saved routes, and avoid geocoding so manual entry also works offline.
-            select(point, center = true, reverse = false, onCommitted = {
+            select(point, center = true, reverse = false, manualSelection = true, onCommitted = {
                 routeMode = false
                 editingRoute = false
                 refreshStatus()
@@ -310,14 +318,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun select(point: Coordinates, center: Boolean, name: String = getString(R.string.selected_point), address: String = "",
-                       reverse: Boolean = true, persist: Boolean = true, onCommitted: () -> Unit = {}, onFailed: () -> Unit = {}) {
+                       reverse: Boolean = true, persist: Boolean = true, manualSelection: Boolean = false,
+                       onCommitted: () -> Unit = {}, onFailed: () -> Unit = {}) {
         cancelDeviceLocation()
         if (BackupGuard.restoring.get()) { onFailed(); return }
         if (persist) {
-            dataModel.write(this, { store.saveSelectionAwait(point, name, address) }, {
+            dataModel.write(this, {
+                store.saveSelectionAwait(point, name, address)
+                if (manualSelection) preferences.routeWorkspace = false
+            }, {
                 select(point, center, name, address, reverse, persist = false)
                 onCommitted()
-            }, { message("No se pudo guardar la ubicación: ${it.message}"); onFailed() })
+            }, { message("No se pudo guardar la ubicación: ${it.message}"); onFailed() }, manualSelection = manualSelection)
             return
         }
         selected = point
@@ -663,6 +675,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        outState.putLong("manualApplied", renderedManualApplied)
         if (!::workspace.isInitialized) { super.onSaveInstanceState(outState); return }
         workspace.save(outState)
         outState.putBoolean("editingRoute", editingRoute)
