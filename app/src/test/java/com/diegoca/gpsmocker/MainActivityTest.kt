@@ -524,12 +524,13 @@ class MainActivityTest {
         val release = java.util.concurrent.CountDownLatch(1)
         UserDataWork.submit({
             entered.countDown()
-            check(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            check(release.await(20, java.util.concurrent.TimeUnit.SECONDS))
         }, {})
         try {
             assertTrue(entered.await(2, java.util.concurrent.TimeUnit.SECONDS))
             dialog.findViewById<Button>(R.id.applyManualCoordinates).performClick()
             controller.recreate()
+            assertEquals(Coordinates.DEFAULT, SimulationStore(application).selection())
             release.countDown()
             settleDataWork()
             assertEquals(Coordinates(10.0, 20.0), SimulationStore(application).selection())
@@ -541,6 +542,37 @@ class MainActivityTest {
             release.countDown()
             settleDataWork()
             controller.pause().stop().destroy()
+        }
+    }
+
+    @Test @Config(sdk = [35])
+    fun `permission result and saved draft wait for cold data loading`() {
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        UserDataWork.submit({
+            entered.countDown()
+            check(release.await(20, java.util.concurrent.TimeUnit.SECONDS))
+        }, {})
+        assertTrue(entered.await(2, java.util.concurrent.TimeUnit.SECONDS))
+        val saved = Bundle().apply {
+            putString("manualLatitude", "-"); putString("manualLongitude", "19,43")
+            putBoolean("pendingCurrentLocation", true)
+        }
+        val controller = Robolectric.buildActivity(MainActivity::class.java).create(saved)
+        try {
+            controller.get().onRequestPermissionsResult(102, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), intArrayOf(PackageManager.PERMISSION_DENIED))
+            val stillLoading = Bundle()
+            controller.saveInstanceState(stillLoading)
+            assertEquals("-", stillLoading.getString("manualLatitude"))
+            assertEquals("19,43", stillLoading.getString("manualLongitude"))
+            release.countDown()
+            settleDataWork()
+            assertNotNull(controller.get().findViewById<WebView>(R.id.map))
+            val dialog = ShadowDialog.getLatestDialog()
+            assertEquals("-", dialog.findViewById<EditText>(R.id.manualLatitudeInput).text.toString())
+            assertNull(shadowOf(application).nextStartedService)
+        } finally {
+            release.countDown(); settleDataWork(); controller.destroy()
         }
     }
 

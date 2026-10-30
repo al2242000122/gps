@@ -62,6 +62,10 @@ android {
         unitTests.all {
             it.maxHeapSize = "2g"
             it.forkEvery = 1
+            it.testLogging {
+                exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+                events("failed")
+            }
             providers.gradleProperty("legacyBackup").orNull?.let { path -> it.systemProperty("gps.backup.path", path); it.inputs.file(path) }
         }
     }
