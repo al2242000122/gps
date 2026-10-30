@@ -20,6 +20,10 @@ import androidx.core.graphics.Insets
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.color.DynamicColors
@@ -31,6 +35,8 @@ import java.util.Locale
 import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
+    private val dataModel by lazy { ViewModelProvider(this)[UserDataViewModel::class.java] }
+    private var renderedDataRevision = -1L
     private lateinit var store: SimulationStore
     private lateinit var preferences: AppPreferences
     private lateinit var library: PlaceLibrary
@@ -116,17 +122,41 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(TextView(this).apply {
+            text = getString(R.string.loading_user_data)
+            gravity = Gravity.CENTER
+            textSize = 18f
+        })
+        lifecycleScope.launch {
+            dataModel.state.collect { state ->
+                if (state.loadError != null && !isFinishing) {
+                    startActivity(Intent(this@MainActivity, DataRecoveryActivity::class.java))
+                    finish()
+                } else if (state.ready && !::workspace.isInitialized) {
+                    initializeWorkspace(savedInstanceState)
+                } else if (::workspace.isInitialized && state.pending == 0 && state.revision != renderedDataRevision) {
+                    renderedDataRevision = state.revision
+                    routeDraft = preferences.route()
+                    if (selected != store.selection()) select(store.selection(), false, store.selectionName,
+                        store.selectionAddress, reverse = false, persist = false)
+                    refreshFavorite()
+                    refreshStatus()
+                }
+            }
+        }
+    }
+
+    private fun initializeWorkspace(savedInstanceState: Bundle?) {
         try { preferences = AppPreferences(this) }
         catch (_: Exception) {
-            super.onCreate(savedInstanceState)
             startActivity(Intent(this, DataRecoveryActivity::class.java)); finish(); return
         }
-        super.onCreate(savedInstanceState)
         if (preferences.dynamicColor) DynamicColors.applyToActivityIfAvailable(this)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         store = SimulationStore(this)
         library = PlaceLibrary(this)
-        sheets = AppSheets(this)
+        sheets = AppSheets(this, dataModel)
         lookup = PlaceLookup(this)
         deviceLocation = DeviceLocation(this)
         setContentView(R.layout.activity_main)
@@ -181,6 +211,8 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.locationCard).addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> adaptLayout() }
         ViewCompat.requestApplyInsets(root)
         refreshStatus()
+        if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) registerStatusReceiver()
+        if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) resumeWorkspace()
     }
 
     private fun bindActions() {
@@ -215,20 +247,22 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.shareButton).setOnClickListener { share() }
         findViewById<View>(R.id.routesButton).setOnClickListener { showRoutes() }
         findViewById<View>(R.id.settingsButton).setOnClickListener {
-            sheets.settings(preferences, onSave = { options, dynamic ->
+            sheets.settings(preferences, onSave = { options, dynamic, complete ->
                 val changed = preferences.dynamicColor != dynamic
-                preferences.saveSettings(options, dynamic)
-                if (MockLocationService.isRunning) sendService(MockLocationService.ACTION_OPTIONS)
-                message(getString(R.string.options_saved))
-                if (changed) root.post { recreate() }
+                dataModel.write(this, { preferences.saveSettingsAwait(options, dynamic) }, {
+                    if (MockLocationService.isRunning) sendService(MockLocationService.ACTION_OPTIONS)
+                    message(getString(R.string.options_saved))
+                    complete(true)
+                    if (changed) root.post { recreate() }
+                }, { message("No se pudieron guardar los ajustes: ${it.message}"); complete(false) })
             }, onDeveloper = { developerGuide() }, onBackup = { backups.show() },
                 privacyOptionsRequired = ads.privacyOptionsRequired, onPrivacyOptions = { ads.privacyOptions() },
                 onPrivacyPolicy = { startActivity(Intent(this, PrivacyActivity::class.java)) })
         }
         findViewById<View>(R.id.layersButton).setOnClickListener {
             sheets.mapAppearance(preferences.mapStyle) {
-                try { preferences.mapStyle = it; applyMapStyle() }
-                catch (e: Exception) { message("No se pudo guardar la apariencia: ${e.message}") }
+                dataModel.write(this, { preferences.saveMapStyleAwait(it) }, { applyMapStyle() },
+                    { message("No se pudo guardar la apariencia: ${it.message}") })
             }
         }
         findViewById<View>(R.id.centerButton).setOnClickListener {
@@ -263,23 +297,29 @@ class MainActivity : AppCompatActivity() {
         cancelDeviceLocation()
         lookup.cancelReverse()
         locateOnResume = false
-        sheets.coordinates(draft, onDraftChanged = { coordinateDraft = it }, onChoose = { point ->
+        sheets.coordinates(draft, onDraftChanged = { coordinateDraft = it }, onChoose = { point, complete ->
             // Selecting a point never starts or updates a running simulation.
             // Preserve saved routes, and avoid geocoding so manual entry also works offline.
-            if (select(point, center = true, reverse = false)) {
+            select(point, center = true, reverse = false, onCommitted = {
                 routeMode = false
                 editingRoute = false
                 refreshStatus()
-                true
-            } else false
+                complete(true)
+            }, onFailed = { complete(false) })
         }, onDismiss = { coordinateDraft = null })
     }
 
-    private fun select(point: Coordinates, center: Boolean, name: String = getString(R.string.selected_point), address: String = "", reverse: Boolean = true, persist: Boolean = true): Boolean {
+    private fun select(point: Coordinates, center: Boolean, name: String = getString(R.string.selected_point), address: String = "",
+                       reverse: Boolean = true, persist: Boolean = true, onCommitted: () -> Unit = {}, onFailed: () -> Unit = {}) {
         cancelDeviceLocation()
-        if (BackupGuard.restoring.get()) return false
-        if (persist) try { store.saveSelection(point, name, address) }
-            catch (e: Exception) { message("No se pudo guardar la ubicación: ${e.message}"); return false }
+        if (BackupGuard.restoring.get()) { onFailed(); return }
+        if (persist) {
+            dataModel.write(this, { store.saveSelectionAwait(point, name, address) }, {
+                select(point, center, name, address, reverse, persist = false)
+                onCommitted()
+            }, { message("No se pudo guardar la ubicación: ${it.message}"); onFailed() })
+            return
+        }
         selected = point
         selectedName = name
         selectedAddress = address
@@ -288,14 +328,15 @@ class MainActivity : AppCompatActivity() {
         if (reverse) lookup.reverse(point) { place ->
             if (place != null && selected == point) {
                 val title = if (selectedName == getString(R.string.selected_point)) place.title else selectedName
-                try {
-                    store.saveSelection(point, title, place.address)
+                dataModel.write(this, {
+                    store.enrichSelectionAwait(point, title, place.address)
+                }, {
+                    if (selected != point) return@write
                     selectedName = title; selectedAddress = place.address
                     displaySelection()
-                } catch (e: Exception) { message("No se pudo guardar la dirección: ${e.message}") }
+                }, { message("No se pudo guardar la dirección: ${it.message}") })
             }
         }
-        return true
     }
 
     private fun displaySelection() {
@@ -317,9 +358,9 @@ class MainActivity : AppCompatActivity() {
                 saveDraft(it.edited(points)); routeMode = true; editingRoute = true
                 refreshStatus(); message(getString(R.string.route_edit_hint))
             },
-            onStart = { saveDraft(it); routeMode = true; editingRoute = false; refreshStatus(); requestSimulation(true) },
-            onImport = { saveDraft(it); importGpx.launch(arrayOf("application/gpx+xml", "application/xml", "text/xml", "application/octet-stream", "*/*")) },
-            onExport = { saveDraft(it); exportPoints = it.points.toList(); exportSource = it.source; exportGpx.launch("gps-mocker-ruta.gpx") },
+            onStart = { saveDraft(it) { routeMode = true; editingRoute = false; refreshStatus(); requestSimulation(true) } },
+            onImport = { saveDraft(it) { importGpx.launch(arrayOf("application/gpx+xml", "application/xml", "text/xml", "application/octet-stream", "*/*")) } },
+            onExport = { draft -> saveDraft(draft) { exportPoints = draft.points.toList(); exportSource = draft.source; exportGpx.launch("gps-mocker-ruta.gpx") } },
             onClear = { saveDraft(RouteDraft(speedKmh = routeDraft.speedKmh)); editingRoute = false; routeMode = false; refreshStatus() },
             onCalculate = { draft ->
                 if (draft.waypoints.size < 2) message("Elige al menos dos puntos en el mapa.")
@@ -329,16 +370,25 @@ class MainActivity : AppCompatActivity() {
                     message("Calculando recorrido por calles…")
                     routing.calculate(draft) { result ->
                         if (expected == routeRevision && !BackupGuard.restoring.get()) result.fold({
-                            saveDraft(it); refreshStatus(); showRoutes()
+                            saveDraft(it) { refreshStatus(); showRoutes() }
                         }, { message(it.message ?: "No se pudo calcular la ruta. Se conserva el recorrido anterior.") })
                     }
                 }
             })
     }
 
-    private fun saveDraft(draft: RouteDraft) {
-        try { preferences.saveRoute(draft); routeDraft = draft; routeRevision++; routing.cancel() }
-        catch (e: Exception) { message("No se pudo guardar la ruta: ${e.message}") }
+    private fun saveDraft(draft: RouteDraft, saved: () -> Unit = {}) {
+        routeDraft = draft
+        routeRevision++
+        routing.cancel()
+        dataModel.write(this, { preferences.saveRouteAwait(draft) }, {
+            refreshStatus()
+            saved()
+        }, {
+            if (routeDraft == draft) routeDraft = preferences.route()
+            refreshStatus()
+            message("No se pudo guardar la ruta: ${it.message}")
+        })
     }
     private fun reloadRestoredData() {
         cancelDeviceLocation(); lookup.cancelReverse(); routing.cancel(); routeRevision++
@@ -351,6 +401,7 @@ class MainActivity : AppCompatActivity() {
         if (BackupGuard.restoring.get()) true else super.dispatchTouchEvent(event)
 
     private fun requestSimulation(route: Boolean, target: Coordinates = selected) {
+        if (dataModel.state.value.pending > 0) { message(getString(R.string.saving_user_data)); return }
         if (BackupGuard.restoring.get()) { message("Espera a que termine la restauración."); return }
         routing.cancel(); routeRevision++
         cancelDeviceLocation()
@@ -374,7 +425,7 @@ class MainActivity : AppCompatActivity() {
                 .setAction(if (route) MockLocationService.ACTION_START_ROUTE else MockLocationService.ACTION_START)
                 .putExtra(MockLocationService.EXTRA_LATITUDE, target.latitude)
                 .putExtra(MockLocationService.EXTRA_LONGITUDE, target.longitude)
-            if (route) { preferences.saveRoute(routeDraft); editingRoute = false }
+            if (route) editingRoute = false
             startForegroundService(intent)
             if (Build.VERSION.SDK_INT >= 33 && !preferences.notificationsPrompted &&
                 checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -565,6 +616,11 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         if (!::workspace.isInitialized) return
+        registerStatusReceiver()
+    }
+
+    private fun registerStatusReceiver() {
+        if (receiverRegistered) return
         ContextCompat.registerReceiver(this, receiver, IntentFilter().apply {
             addAction(MockLocationService.ACTION_STATUS); addAction(ACTION_ROUTE_IMPORTED); addAction(BackupController.ACTION_RESTORED)
         }, ContextCompat.RECEIVER_NOT_EXPORTED)
@@ -574,6 +630,10 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         if (!::workspace.isInitialized) return
+        resumeWorkspace()
+    }
+
+    private fun resumeWorkspace() {
         map.onResume()
         val latest = preferences.route()
         if (latest.points != routeDraft.points && preferences.routeWorkspace) {

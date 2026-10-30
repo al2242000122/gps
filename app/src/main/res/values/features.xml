@@ -1,4 +1,6 @@
 <resources>
+    <string name="loading_user_data">Cargando tus datos…</string>
+    <string name="saving_user_data">Espera a que se guarden los cambios.</string>
     <string name="search_places">Buscar lugares</string>
     <string name="search_hint">Buscar un lugar o dirección</string>
     <string name="settings">Ajustes</string>

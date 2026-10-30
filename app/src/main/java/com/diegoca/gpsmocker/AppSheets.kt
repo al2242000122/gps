@@ -28,7 +28,7 @@ import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
 
-class AppSheets(private val activity: AppCompatActivity) {
+class AppSheets(private val activity: AppCompatActivity, private val dataModel: UserDataViewModel) {
     private val dialogs = mutableListOf<Dialog>()
     private fun dp(value: Int) = (value * activity.resources.displayMetrics.density).toInt()
     private fun string(id: Int) = activity.getString(id)
@@ -122,7 +122,7 @@ class AppSheets(private val activity: AppCompatActivity) {
     fun coordinates(
         draft: CoordinateDraft,
         onDraftChanged: (CoordinateDraft) -> Unit,
-        onChoose: (Coordinates) -> Boolean,
+        onChoose: (Coordinates, (Boolean) -> Unit) -> Unit,
         onDismiss: () -> Unit
     ) {
         val (dialog, body) = sheet(R.string.enter_coordinates, scroll = true, onDismissRequested = onDismiss)
@@ -169,8 +169,12 @@ class AppSheets(private val activity: AppCompatActivity) {
                 val point = Coordinates.parse(lat, lon)
                 if (point == null) {
                     (if (!validLatitude) latitude else longitude).requestFocus()
-                } else if (onChoose(point)) {
-                    dialog.dismiss()
+                } else {
+                    isEnabled = false
+                    onChoose(point) { committed ->
+                        isEnabled = true
+                        if (committed) dialog.dismiss()
+                    }
                 }
             }
         }
@@ -264,26 +268,23 @@ class AppSheets(private val activity: AppCompatActivity) {
                 val place = values[position]
                 show(MaterialAlertDialogBuilder(activity).setTitle(place.name)
                     .setItems(arrayOf(string(R.string.rename), string(R.string.delete))) { _, which ->
-                        if (which == 0) nameDialog(place.name) { library.rename(place.id, it); refresh() }
-                        else safely { library.deleteFavorite(place.id); refresh() }
+                        if (which == 0) nameDialog(place.name, { library.rename(place.id, it) }) { refresh() }
+                        else write({ library.deleteFavorite(place.id) }, saved = { refresh() })
                     }.create())
                 true
             }
         }
-        clear.setOnClickListener { confirm(R.string.clear_history, R.string.clear_history_confirm) { safely { library.clearHistory(); refresh() } } }
+        clear.setOnClickListener { confirm(R.string.clear_history, R.string.clear_history_confirm) { write({ library.clearHistory() }, saved = { refresh() }) } }
         refresh()
         show(dialog)
     }
 
     fun favorite(library: PlaceLibrary, point: Coordinates, name: String, onChanged: () -> Unit) {
         val existing = library.favoriteAt(point)
-        nameDialog(existing?.name ?: name) {
-            library.saveFavorite(it, point)
-            onChanged()
-        }
+        nameDialog(existing?.name ?: name, { library.saveFavorite(it, point) }, onChanged)
     }
 
-    private fun nameDialog(current: String, onSave: (String) -> Unit) {
+    private fun nameDialog(current: String, onSave: (String) -> Unit, saved: () -> Unit) {
         val body = column()
         val edit = input(body, R.string.favorite_name, current)
         val dialog = MaterialAlertDialogBuilder(activity).setTitle(R.string.save_favorite).setView(body)
@@ -292,7 +293,12 @@ class AppSheets(private val activity: AppCompatActivity) {
         dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE).setOnClickListener {
             val name = edit.text.toString().trim()
             if (name.isEmpty()) edit.error = string(R.string.favorite_name)
-            else safely { onSave(name); dialog.dismiss() }
+            else {
+                dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE).isEnabled = false
+                write({ onSave(name) }, { saved(); dialog.dismiss() }, {
+                    dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE).isEnabled = true
+                })
+            }
         }
     }
 
@@ -374,7 +380,7 @@ class AppSheets(private val activity: AppCompatActivity) {
         show(dialog)
     }
 
-    fun settings(preferences: AppPreferences, onSave: (SimulationOptions, Boolean) -> Unit, onDeveloper: () -> Unit, onBackup: () -> Unit, privacyOptionsRequired: Boolean, onPrivacyOptions: () -> Unit, onPrivacyPolicy: () -> Unit) {
+    fun settings(preferences: AppPreferences, onSave: (SimulationOptions, Boolean, (Boolean) -> Unit) -> Unit, onDeveloper: () -> Unit, onBackup: () -> Unit, privacyOptionsRequired: Boolean, onPrivacyOptions: () -> Unit, onPrivacyPolicy: () -> Unit) {
         val (dialog, body) = sheet(R.string.settings, scroll = true)
         body.addView(button(R.string.developer_settings, R.drawable.ic_settings, tonal = true).apply {
             setOnClickListener { dialog.dismiss(); onDeveloper() }
@@ -413,7 +419,13 @@ class AppSheets(private val activity: AppCompatActivity) {
                     SimulationOptions(altitude.text.toString().replace(',', '.').toDouble(),
                         accuracy.text.toString().replace(',', '.').toFloat(), intervals[interval.selectedItemPosition])
                 }
-                result.fold(onSuccess = { safely { onSave(it, dynamic.isChecked); dialog.dismiss() } },
+                result.fold(onSuccess = {
+                    isEnabled = false
+                    onSave(it, dynamic.isChecked) { committed ->
+                        isEnabled = true
+                        if (committed) dialog.dismiss()
+                    }
+                },
                     onFailure = { Toast.makeText(activity, R.string.invalid_options, Toast.LENGTH_LONG).show() })
             }
         }, LinearLayout.LayoutParams(-1, dp(56)))
@@ -434,8 +446,11 @@ class AppSheets(private val activity: AppCompatActivity) {
             .setNegativeButton(R.string.cancel, null).create())
     }
 
-    private fun safely(action: () -> Unit) {
-        try { action() } catch (e: Exception) { Toast.makeText(activity, "No se pudieron guardar los cambios: ${e.message}", Toast.LENGTH_LONG).show() }
+    private fun write(action: () -> Unit, saved: () -> Unit, failed: () -> Unit = {}) {
+        dataModel.write(activity, action, { saved() }, {
+            Toast.makeText(activity, "No se pudieron guardar los cambios: ${it.message}", Toast.LENGTH_LONG).show()
+            failed()
+        })
     }
     private fun confirm(title: Int, message: Int, confirmed: () -> Unit) {
         show(MaterialAlertDialogBuilder(activity).setTitle(title).setMessage(message)

@@ -111,7 +111,13 @@ open class MockLocationService : Service() {
         isRunning = true
         store.writeStatus(statusMessage())
         val name = if (route != null) getString(R.string.route_history_name) else store.selectionName
-        PlaceLibrary(this).record(name, target)
+        val context = applicationContext
+        UserDataWork.submit({ PlaceLibrary(context).record(name, target) }) { result ->
+            if (result.isFailure && isRunning) {
+                store.writeStatus("No se pudo guardar el historial; la simulación continúa.", true)
+                broadcastStatus()
+            }
+        }
         broadcastStatus()
         handler.postDelayed(tick, options.intervalMillis)
     }

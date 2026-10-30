@@ -48,7 +48,7 @@ class BackupController(private val activity: AppCompatActivity, private val befo
                     beforeRestore()
                     scope.launch {
                         val result = try { runCatching { withContext(NonCancellable + Dispatchers.IO) {
-                            UserDataRepository.get(activity).restore(backup.data)
+                            UserDataRepository.get(activity).restoreAwait(backup.data)
                             BackupGuard.restoring.set(false)
                             activity.applicationContext.sendBroadcast(Intent(ACTION_RESTORED).setPackage(activity.packageName))
                         } } }

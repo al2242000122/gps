@@ -5,6 +5,8 @@ import androidx.datastore.core.DataStoreFactory
 import androidx.datastore.core.Serializer
 import androidx.datastore.core.CorruptionException
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.InputStream
@@ -135,7 +137,7 @@ class UserDataRepository internal constructor(context: Context, private val file
         override suspend fun writeTo(t: UserData, output: OutputStream) { beforeWrite(); BackupCodec.write(output, t, 0) }
     }, scope = scope, produceFile = { file })
     @Volatile private var projection: UserData? = null
-    private val lock = Any()
+    private val lock = Mutex()
     init {
         try {
             runBlocking(Dispatchers.IO) {
@@ -145,11 +147,14 @@ class UserDataRepository internal constructor(context: Context, private val file
         } catch (e: Exception) { close(); throw e }
     }
     fun snapshot(): UserData = checkNotNull(projection)
-    fun update(transform: (UserData) -> UserData): UserData = mutate(false, transform)
-    fun restore(backup: UserData): UserData = mutate(true) { backup }
-    private fun mutate(restoring: Boolean, transform: (UserData) -> UserData): UserData = synchronized(lock) {
+    // Synchronous compatibility for tools/tests. UI callers use the suspending API.
+    fun update(transform: (UserData) -> UserData): UserData = runBlocking(Dispatchers.IO) { updateAwait(transform) }
+    fun restore(backup: UserData): UserData = runBlocking(Dispatchers.IO) { restoreAwait(backup) }
+    suspend fun updateAwait(transform: (UserData) -> UserData): UserData = mutate(false, transform)
+    suspend fun restoreAwait(backup: UserData): UserData = mutate(true) { backup }
+    private suspend fun mutate(restoring: Boolean, transform: (UserData) -> UserData): UserData = lock.withLock {
         check(restoring || !BackupGuard.restoring.get()) { "Espera a que termine la restauración." }
-        runBlocking(Dispatchers.IO) { dataStore.updateData { transform(it) } }.also { projection = it }
+        dataStore.updateData { transform(it) }.also { projection = it }
     }
     internal fun close() { runBlocking { scope.coroutineContext[Job]?.cancelAndJoin() } }
     companion object {

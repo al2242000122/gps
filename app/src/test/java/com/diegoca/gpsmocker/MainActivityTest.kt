@@ -60,8 +60,10 @@ class MainActivityTest {
 
     private fun launch(): ActivityController<MainActivity> {
         val controller = Robolectric.buildActivity(MainActivity::class.java).create()
+        settleDataWork()
         controller.get().findViewById<WebView>(R.id.map).settings.blockNetworkLoads = true
         controller.start().resume().visible()
+        settleDataWork()
         layout(controller.get())
         return controller
     }
@@ -94,11 +96,11 @@ class MainActivityTest {
         preferences.routeWorkspace = true
         val controller = launch()
         val activity = controller.get()
-        activity.findViewById<Button>(R.id.editCoordinatesButton).performClick()
+        activity.findViewById<Button>(R.id.editCoordinatesButton).clickAndSettle()
         val dialog = ShadowDialog.getLatestDialog()
         dialog.findViewById<EditText>(R.id.manualLatitudeInput).setText("-12,5")
         dialog.findViewById<EditText>(R.id.manualLongitudeInput).setText("179.25")
-        dialog.findViewById<Button>(R.id.applyManualCoordinates).performClick()
+        dialog.findViewById<Button>(R.id.applyManualCoordinates).clickAndSettle()
         assertFalse(dialog.isShowing)
         assertEquals(Coordinates(-12.5, 179.25), SimulationStore(application).selection())
         assertEquals("-12.500000, 179.250000", activity.findViewById<TextView>(R.id.coordinatesText).text.toString())
@@ -129,11 +131,11 @@ class MainActivityTest {
         try {
             val before = MockLocationService.snapshot
             val publications = service.get().backend.fixes.size
-            controller.get().findViewById<Button>(R.id.editCoordinatesButton).performClick()
+            controller.get().findViewById<Button>(R.id.editCoordinatesButton).clickAndSettle()
             val dialog = ShadowDialog.getLatestDialog()
             dialog.findViewById<EditText>(R.id.manualLatitudeInput).setText("10")
             dialog.findViewById<EditText>(R.id.manualLongitudeInput).setText("20")
-            dialog.findViewById<Button>(R.id.applyManualCoordinates).performClick()
+            dialog.findViewById<Button>(R.id.applyManualCoordinates).clickAndSettle()
             assertFalse(dialog.isShowing)
             assertEquals(Coordinates(10.0, 20.0), SimulationStore(application).selection())
             assertTrue(MockLocationService.isRunning)
@@ -151,13 +153,13 @@ class MainActivityTest {
         val previous = Coordinates(40.4168, -3.7038)
         SimulationStore(application).saveSelection(previous)
         val controller = launch()
-        controller.get().findViewById<Button>(R.id.editCoordinatesButton).performClick()
+        controller.get().findViewById<Button>(R.id.editCoordinatesButton).clickAndSettle()
         val dialog = ShadowDialog.getLatestDialog()
         val latitude = dialog.findViewById<EditText>(R.id.manualLatitudeInput)
         val longitude = dialog.findViewById<EditText>(R.id.manualLongitudeInput)
         for ((lat, lon) in listOf("91" to "0", "-90.1" to "0", "0" to "181", "0" to "-180.1", "-" to "", "1,2,3" to "0")) {
             latitude.setText(lat); longitude.setText(lon)
-            dialog.findViewById<Button>(R.id.applyManualCoordinates).performClick()
+            dialog.findViewById<Button>(R.id.applyManualCoordinates).clickAndSettle()
             assertTrue(dialog.isShowing)
             assertEquals(previous, SimulationStore(application).selection())
             assertTrue(views(dialog.window!!.decorView).filterIsInstance<TextInputLayout>().any { it.error != null })
@@ -172,12 +174,12 @@ class MainActivityTest {
         SimulationStore(application).saveSelection(previous)
         AppPreferences(application).routeWorkspace = true
         val controller = launch()
-        controller.get().findViewById<Button>(R.id.editCoordinatesButton).performClick()
+        controller.get().findViewById<Button>(R.id.editCoordinatesButton).clickAndSettle()
         val dialog = ShadowDialog.getLatestDialog()
         assertEquals("40.416800", dialog.findViewById<EditText>(R.id.manualLatitudeInput).text.toString())
         dialog.findViewById<EditText>(R.id.manualLatitudeInput).setText("0")
         views(dialog.window!!.decorView).filterIsInstance<Button>()
-            .single { it.text.toString() == application.getString(R.string.cancel) }.performClick()
+            .single { it.text.toString() == application.getString(R.string.cancel) }.clickAndSettle()
         assertFalse(dialog.isShowing)
         assertEquals(previous, SimulationStore(application).selection())
         assertTrue(AppPreferences(application).routeWorkspace)
@@ -189,11 +191,12 @@ class MainActivityTest {
         val previous = Coordinates(40.4168, -3.7038)
         SimulationStore(application).saveSelection(previous)
         val controller = launch()
-        controller.get().findViewById<Button>(R.id.editCoordinatesButton).performClick()
+        controller.get().findViewById<Button>(R.id.editCoordinatesButton).clickAndSettle()
         var dialog = ShadowDialog.getLatestDialog()
         dialog.findViewById<EditText>(R.id.manualLatitudeInput).setText("-")
         dialog.findViewById<EditText>(R.id.manualLongitudeInput).setText("19,43")
         controller.recreate()
+        settleDataWork()
         dialog = ShadowDialog.getLatestDialog()
         assertTrue(dialog.isShowing)
         assertEquals("-", dialog.findViewById<EditText>(R.id.manualLatitudeInput).text.toString())
@@ -201,6 +204,7 @@ class MainActivityTest {
         assertEquals(previous, SimulationStore(application).selection())
         dialog.dismiss()
         controller.recreate()
+        settleDataWork()
         assertFalse(ShadowDialog.getLatestDialog().isShowing)
         assertEquals(previous, SimulationStore(application).selection())
         controller.pause().stop().destroy()
@@ -208,13 +212,13 @@ class MainActivityTest {
 
     @Test fun `manual editor stays open if restoring data blocks the selection`() {
         val controller = launch()
-        controller.get().findViewById<Button>(R.id.editCoordinatesButton).performClick()
+        controller.get().findViewById<Button>(R.id.editCoordinatesButton).clickAndSettle()
         val dialog = ShadowDialog.getLatestDialog()
         dialog.findViewById<EditText>(R.id.manualLatitudeInput).setText("10")
         dialog.findViewById<EditText>(R.id.manualLongitudeInput).setText("20")
         BackupGuard.restoring.set(true)
         try {
-            dialog.findViewById<Button>(R.id.applyManualCoordinates).performClick()
+            dialog.findViewById<Button>(R.id.applyManualCoordinates).clickAndSettle()
             assertTrue(dialog.isShowing)
             assertEquals(Coordinates.DEFAULT, SimulationStore(application).selection())
             assertNull(shadowOf(application).nextStartedService)
@@ -229,7 +233,7 @@ class MainActivityTest {
         val selected = SimulationStore(application).selection()
         assertEquals(19.433, selected.latitude, 0.00005)
         assertEquals(-99.132, selected.longitude, 0.00005)
-        activity.findViewById<Button>(R.id.copyButton).performClick()
+        activity.findViewById<Button>(R.id.copyButton).clickAndSettle()
         val copied = activity.getSystemService(ClipboardManager::class.java).primaryClip!!.getItemAt(0).text.toString()
         assertEquals(activity.findViewById<TextView>(R.id.coordinatesText).text.toString(), copied)
         controller.pause().stop().destroy()
@@ -239,7 +243,7 @@ class MainActivityTest {
         shadowOf(application.getSystemService(AppOpsManager::class.java)).setMode(
             AppOpsManager.OPSTR_MOCK_LOCATION, Process.myUid(), application.packageName, AppOpsManager.MODE_ERRORED)
         val controller = launch()
-        controller.get().findViewById<Button>(R.id.startButton).performClick()
+        controller.get().findViewById<Button>(R.id.startButton).clickAndSettle()
         val dialog = ShadowDialog.getLatestDialog() as AlertDialog
         assertTrue(dialog.isShowing)
         assertEquals(controller.get().getString(R.string.open_settings_action), dialog.getButton(DialogInterface.BUTTON_POSITIVE).text.toString())
@@ -254,10 +258,11 @@ class MainActivityTest {
     @Test fun `choosing a saved favorite restores its point on the map`() {
         PlaceLibrary(application).saveFavorite("Oficina", Coordinates(40.0, -3.0))
         val controller = launch()
-        controller.get().findViewById<Button>(R.id.libraryButton).performClick()
+        controller.get().findViewById<Button>(R.id.libraryButton).clickAndSettle()
         val dialog = ShadowDialog.getLatestDialog()
         val list = views(dialog.window!!.decorView).filterIsInstance<ListView>().single()
         list.performItemClick(null, 0, 0)
+        settleDataWork()
         assertEquals(Coordinates(40.0, -3.0), SimulationStore(application).selection())
         assertEquals("Oficina", controller.get().findViewById<TextView>(R.id.placeTitle).text.toString())
         controller.pause().stop().destroy()
@@ -266,10 +271,10 @@ class MainActivityTest {
     @Test fun `route editor collects map points and survives recreation`() {
         val controller = launch()
         val activity = controller.get()
-        activity.findViewById<Button>(R.id.routesButton).performClick()
+        activity.findViewById<Button>(R.id.routesButton).clickAndSettle()
         val dialog = ShadowDialog.getLatestDialog()
         views(dialog.window!!.decorView).filterIsInstance<MaterialButton>()
-            .first { it.text.toString() == activity.getString(R.string.draw_route) }.performClick()
+            .first { it.text.toString() == activity.getString(R.string.draw_route) }.clickAndSettle()
         tap(activity, Coordinates(19.433, -99.132))
         tap(activity, Coordinates(19.434, -99.131))
         assertEquals(3, AppPreferences(application).route().points.size)
@@ -277,6 +282,7 @@ class MainActivityTest {
         val saved = Bundle()
         controller.saveInstanceState(saved).pause().stop().destroy()
         val recreated = Robolectric.buildActivity(MainActivity::class.java).create(saved)
+        settleDataWork()
         recreated.get().findViewById<WebView>(R.id.map).settings.blockNetworkLoads = true
         recreated.start().restoreInstanceState(saved).resume().visible()
         assertEquals(3, AppPreferences(application).route().points.size)
@@ -369,8 +375,10 @@ class MainActivityTest {
         val saved = Bundle()
         controller.saveInstanceState(saved).pause().stop().destroy()
         val recreated = Robolectric.buildActivity(MainActivity::class.java).create(saved)
+        settleDataWork()
         recreated.get().findViewById<WebView>(R.id.map).settings.blockNetworkLoads = true
         recreated.start().resume()
+        settleDataWork()
         assertEquals(Coordinates(21.0, -101.0), SimulationStore(application).selection())
         recreated.pause().stop().destroy()
     }
@@ -393,11 +401,11 @@ class MainActivityTest {
     fun `backup export uses document picker without broad storage permission`() {
         shadowOf(application).grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
         val controller = launch();val activity=controller.get()
-        activity.findViewById<View>(R.id.settingsButton).performClick()
+        activity.findViewById<View>(R.id.settingsButton).clickAndSettle()
         val settings=ShadowDialog.getLatestDialog()
-        views(settings.window!!.decorView).filterIsInstance<MaterialButton>().first { it.text.toString()==activity.getString(R.string.backup_restore) }.performClick()
+        views(settings.window!!.decorView).filterIsInstance<MaterialButton>().first { it.text.toString()==activity.getString(R.string.backup_restore) }.clickAndSettle()
         val backup=ShadowDialog.getLatestDialog() as AlertDialog
-        backup.getButton(DialogInterface.BUTTON_POSITIVE).performClick()
+        backup.getButton(DialogInterface.BUTTON_POSITIVE).clickAndSettle()
         shadowOf(android.os.Looper.getMainLooper()).idle()
         val request=shadowOf(activity).nextStartedActivityForResult
         assertEquals(android.content.Intent.ACTION_CREATE_DOCUMENT,request.intent.action)
@@ -413,11 +421,11 @@ class MainActivityTest {
         val file=File(application.cacheDir,"restore.json")
         file.outputStream().use { BackupCodec.write(it,UserData(selectionName="Restaurado")) }
         val before=UserDataRepository.get(application).snapshot()
-        activity.findViewById<View>(R.id.settingsButton).performClick()
+        activity.findViewById<View>(R.id.settingsButton).clickAndSettle()
         views(ShadowDialog.getLatestDialog().window!!.decorView).filterIsInstance<MaterialButton>()
-            .first { it.text.toString()==activity.getString(R.string.backup_restore) }.performClick()
+            .first { it.text.toString()==activity.getString(R.string.backup_restore) }.clickAndSettle()
         val backup=ShadowDialog.getLatestDialog() as AlertDialog
-        backup.getButton(DialogInterface.BUTTON_NEUTRAL).performClick()
+        backup.getButton(DialogInterface.BUTTON_NEUTRAL).clickAndSettle()
         shadowOf(android.os.Looper.getMainLooper()).idle()
         val request=shadowOf(activity).nextStartedActivityForResult
         shadowOf(activity).receiveResult(request.intent,android.app.Activity.RESULT_OK,android.content.Intent().setData(android.net.Uri.fromFile(file)))
@@ -428,7 +436,7 @@ class MainActivityTest {
         val preview=ShadowDialog.getLatestDialog() as AlertDialog
         assertNotSame(backup,preview)
         SimulationStore(application).cleanupNeeded=true
-        preview.getButton(DialogInterface.BUTTON_POSITIVE).performClick()
+        preview.getButton(DialogInterface.BUTTON_POSITIVE).clickAndSettle()
         shadowOf(android.os.Looper.getMainLooper()).idle()
         assertEquals(before,UserDataRepository.get(application).snapshot())
         assertFalse(BackupGuard.restoring.get())
@@ -439,6 +447,7 @@ class MainActivityTest {
     fun `damaged storage opens recovery instead of replacing saved places`() {
         val file=File(application.filesDir,"userdata/user-data.json");file.parentFile!!.mkdirs();file.writeText("broken")
         val controller=Robolectric.buildActivity(MainActivity::class.java).create()
+        settleDataWork()
         val next=shadowOf(controller.get()).nextStartedActivity
         assertEquals(DataRecoveryActivity::class.java.name,next.component!!.className)
         assertEquals("broken",file.readText())
@@ -450,14 +459,20 @@ class MainActivityTest {
     fun `switching an imported provider geometry to direct mode preserves attribution`() {
         AppPreferences(application).saveRoute(RouteDraft(listOf(Coordinates.DEFAULT,Coordinates(19.44,-99.14)),mode=RouteMode.IMPORTED,source="geoapify"))
         val controller=launch();val activity=controller.get()
-        activity.findViewById<View>(R.id.routesButton).performClick()
+        activity.findViewById<View>(R.id.routesButton).clickAndSettle()
         val dialog=ShadowDialog.getLatestDialog()
         views(dialog.window!!.decorView).filterIsInstance<android.widget.Spinner>().first().setSelection(RouteMode.DIRECT.ordinal)
         views(dialog.window!!.decorView).filterIsInstance<MaterialButton>()
-            .first { it.text.toString()==activity.getString(R.string.edit_route) }.performClick()
+            .first { it.text.toString()==activity.getString(R.string.edit_route) }.clickAndSettle()
         assertEquals(RouteMode.DIRECT,AppPreferences(application).route().mode)
         assertEquals("geoapify",AppPreferences(application).route().source)
         controller.pause().stop().destroy()
+    }
+
+    private fun View.clickAndSettle(): Boolean {
+        val clicked = performClick()
+        settleDataWork()
+        return clicked
     }
 
     private fun capture(activity: MainActivity, name: String) {
@@ -473,6 +488,7 @@ class MainActivityTest {
         val map = activity.findViewById<WebView>(R.id.map)
         val bridge = shadowOf(map).getJavascriptInterface(MapWorkspace.BRIDGE_NAME) as MapWorkspace.Bridge
         bridge.onSelect(point.latitude, point.longitude)
+        settleDataWork()
     }
 
     private fun views(view: View): List<View> = listOf(view) + if (view is ViewGroup)
