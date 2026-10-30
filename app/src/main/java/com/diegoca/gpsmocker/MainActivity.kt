@@ -36,6 +36,11 @@ import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
     private val dataModel by lazy { ViewModelProvider(this)[UserDataViewModel::class.java] }
+    private var layoutUpdatePosted = false
+    private val adaptAfterLayout = Runnable {
+        layoutUpdatePosted = false
+        if (!isDestroyed && ::root.isInitialized) adaptLayout()
+    }
     private var renderedDataRevision = -1L
     private var renderedManualApplied = 0L
     private var creationState: Bundle? = null
@@ -173,7 +178,7 @@ class MainActivity : AppCompatActivity() {
         deviceLocation = DeviceLocation(this)
         setContentView(R.layout.activity_main)
         root = findViewById(R.id.contentRoot)
-        ads = AdsController(this, findViewById(R.id.adContainer)) { adaptLayout() }
+        ads = AdsController(this, findViewById(R.id.adContainer)) { scheduleLayout() }
         ads.start()
         map = findViewById(R.id.map)
         selected = store.selection()
@@ -221,11 +226,11 @@ class MainActivity : AppCompatActivity() {
         }
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-            adaptLayout()
+            scheduleLayout()
             insets
         }
-        root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> adaptLayout() }
-        findViewById<View>(R.id.locationCard).addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> adaptLayout() }
+        root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> scheduleLayout() }
+        findViewById<View>(R.id.locationCard).addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> scheduleLayout() }
         ViewCompat.requestApplyInsets(root)
         refreshStatus()
         if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) registerStatusReceiver()
@@ -588,6 +593,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun scheduleLayout() {
+        if (!::root.isInitialized || layoutUpdatePosted || isDestroyed) return
+        layoutUpdatePosted = true
+        root.post(adaptAfterLayout)
+    }
+
     private fun adaptLayout() {
         if (root.width == 0 || root.height == 0) return
         val density = resources.displayMetrics.density
@@ -601,6 +612,9 @@ class MainActivity : AppCompatActivity() {
                 params.topMargin != top || params.rightMargin != right || params.bottomMargin != bottom) {
                 params.width = width; params.height = h; params.gravity = gravity
                 params.setMargins(left, top, right, bottom)
+                val rtl = root.layoutDirection == View.LAYOUT_DIRECTION_RTL
+                params.marginStart = if (rtl) right else left
+                params.marginEnd = if (rtl) left else right
                 view.layoutParams = params
             }
         }
@@ -723,6 +737,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         readyActions.clear()
+        if (::root.isInitialized) root.removeCallbacks(adaptAfterLayout)
         if (!::workspace.isInitialized) { backups.close(); routing.close(); io.shutdown(); super.onDestroy(); return }
         deviceLocation.cancel()
         ads.close(); routing.close(); backups.close(); sheets.close(); lookup.close(); io.shutdown(); workspace.close()
