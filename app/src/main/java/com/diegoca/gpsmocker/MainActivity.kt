@@ -38,6 +38,8 @@ class MainActivity : AppCompatActivity() {
     private val dataModel by lazy { ViewModelProvider(this)[UserDataViewModel::class.java] }
     private var renderedDataRevision = -1L
     private var renderedManualApplied = 0L
+    private var creationState: Bundle? = null
+    private val readyActions = ArrayDeque<() -> Unit>()
     private lateinit var store: SimulationStore
     private lateinit var preferences: AppPreferences
     private lateinit var library: PlaceLibrary
@@ -86,7 +88,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private val importGpx = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
+        if (uri != null) whenWorkspaceReady {
             val context = applicationContext
             val prior = preferences.route()
             io.execute {
@@ -107,7 +109,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private val exportGpx = registerForActivityResult(ActivityResultContracts.CreateDocument("application/gpx+xml")) { uri ->
-        if (uri != null && exportPoints.size >= 2) {
+        if (uri != null) whenWorkspaceReady {
+            if (exportPoints.size < 2) return@whenWorkspaceReady
             val points = exportPoints.toList()
             val source = exportSource
             val resolver = applicationContext.contentResolver
@@ -124,6 +127,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        creationState = savedInstanceState
         renderedManualApplied = savedInstanceState?.getLong("manualApplied", 0L) ?: 0L
         setContentView(TextView(this).apply {
             text = getString(R.string.loading_user_data)
@@ -226,6 +230,12 @@ class MainActivity : AppCompatActivity() {
         refreshStatus()
         if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) registerStatusReceiver()
         if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) resumeWorkspace()
+        while (readyActions.isNotEmpty()) readyActions.removeFirst().invoke()
+        creationState = null
+    }
+
+    private fun whenWorkspaceReady(action: () -> Unit) {
+        if (::workspace.isInitialized) action() else readyActions.addLast(action)
     }
 
     private fun bindActions() {
@@ -618,6 +628,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        whenWorkspaceReady { handlePermissionResult(requestCode, grantResults) }
+    }
+
+    private fun handlePermissionResult(requestCode: Int, grantResults: IntArray) {
         if (requestCode == LOCATION_REQUEST) {
             val route = pendingRoute; val point = pendingPoint
             pendingRoute = null; pendingPoint = null
@@ -686,7 +700,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putLong("manualApplied", renderedManualApplied)
-        if (!::workspace.isInitialized) { super.onSaveInstanceState(outState); return }
+        if (!::workspace.isInitialized) {
+            creationState?.let { outState.putAll(it) }
+            super.onSaveInstanceState(outState)
+            return
+        }
         workspace.save(outState)
         outState.putBoolean("editingRoute", editingRoute)
         outState.putBoolean("routeMode", routeMode)
@@ -704,6 +722,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        readyActions.clear()
         if (!::workspace.isInitialized) { backups.close(); routing.close(); io.shutdown(); super.onDestroy(); return }
         deviceLocation.cancel()
         ads.close(); routing.close(); backups.close(); sheets.close(); lookup.close(); io.shutdown(); workspace.close()
