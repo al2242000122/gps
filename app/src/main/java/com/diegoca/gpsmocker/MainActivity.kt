@@ -230,6 +230,7 @@ class MainActivity : AppCompatActivity() {
             insets
         }
         root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> scheduleLayout() }
+        findViewById<View>(R.id.searchCard).addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> scheduleLayout() }
         findViewById<View>(R.id.locationCard).addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> scheduleLayout() }
         ViewCompat.requestApplyInsets(root)
         refreshStatus()
@@ -631,8 +632,9 @@ class MainActivity : AppCompatActivity() {
         val searchWidth = if (wide) (root.width - dp(404) - bars.left - bars.right).coerceAtLeast(dp(180)) else -1
         margins(R.id.searchCard, searchWidth, Gravity.TOP or Gravity.START,
             bars.left + dp(16), bars.top + dp(12), bars.right + dp(16), 0)
+        val searchHeight = findViewById<View>(R.id.searchCard).height.takeIf { it > 0 } ?: dp(64)
         margins(R.id.routeBanner, searchWidth, Gravity.TOP or Gravity.START,
-            bars.left + dp(16), bars.top + dp(84), bars.right + dp(16), 0)
+            bars.left + dp(16), bars.top + dp(20) + searchHeight, bars.right + dp(16), 0)
         val cardHeight = card.height
         margins(R.id.mapControls, dp(56), Gravity.BOTTOM or if (wide) Gravity.START else Gravity.END,
             bars.left + dp(16), 0, bars.right + dp(16), bars.bottom + adSpace + dp(24) + if (wide) 0 else cardHeight)

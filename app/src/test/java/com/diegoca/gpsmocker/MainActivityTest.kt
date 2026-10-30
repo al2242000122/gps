@@ -487,6 +487,11 @@ class MainActivityTest {
                 assertTrue("Clipped text: ${button.text}", button.height >= button.layout.height + button.compoundPaddingTop + button.compoundPaddingBottom)
             }
             capture(activity, "home-font-200.png")
+            activity.findViewById<Button>(R.id.routesButton).clickAndSettle()
+            views(ShadowDialog.getLatestDialog().window!!.decorView).filterIsInstance<MaterialButton>()
+                .first { it.text.toString() == activity.getString(R.string.draw_route) }.clickAndSettle()
+            layout(activity, 1233, 2673)
+            assertTrue(activity.findViewById<View>(R.id.routeBanner).top >= activity.findViewById<View>(R.id.searchCard).bottom)
         } finally {
             controller.pause().stop().destroy()
             RuntimeEnvironment.setFontScale(1f)
