@@ -5,6 +5,7 @@ import android.app.Application
 import android.Manifest
 import android.content.ClipboardManager
 import android.content.DialogInterface
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.PermissionInfo
 import android.graphics.Bitmap
@@ -106,6 +107,44 @@ class MainActivityTest {
         assertFalse(MockLocationService.isRunning)
         assertNull(shadowOf(application).nextStartedService)
         controller.pause().stop().destroy()
+    }
+
+    @Test fun `manual selection leaves a running route and its GPS position untouched`() {
+        shadowOf(application).grantPermissions(
+            Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.FOREGROUND_SERVICE, Manifest.permission.FOREGROUND_SERVICE_LOCATION,
+            Manifest.permission.WAKE_LOCK
+        )
+        shadowOf(application.getSystemService(AppOpsManager::class.java)).setMode(
+            AppOpsManager.OPSTR_MOCK_LOCATION, Process.myUid(), application.packageName, AppOpsManager.MODE_ALLOWED)
+        shadowOf(application.getSystemService(LocationManager::class.java)).setLocationEnabled(true)
+        val route = RouteDraft(listOf(Coordinates(0.0, 0.0), Coordinates(0.0, 0.01)), 36.0)
+        AppPreferences(application).saveRoute(route)
+        val service = Robolectric.buildService(MockLocationServiceTest.TestService::class.java).create()
+        service.get().onStartCommand(
+            Intent(application, MockLocationServiceTest.TestService::class.java).setAction(MockLocationService.ACTION_START_ROUTE),
+            0, 1
+        )
+        val controller = launch()
+        try {
+            val before = MockLocationService.snapshot
+            val publications = service.get().backend.fixes.size
+            controller.get().findViewById<Button>(R.id.editCoordinatesButton).performClick()
+            val dialog = ShadowDialog.getLatestDialog()
+            dialog.findViewById<EditText>(R.id.manualLatitudeInput).setText("10")
+            dialog.findViewById<EditText>(R.id.manualLongitudeInput).setText("20")
+            dialog.findViewById<Button>(R.id.applyManualCoordinates).performClick()
+            assertFalse(dialog.isShowing)
+            assertEquals(Coordinates(10.0, 20.0), SimulationStore(application).selection())
+            assertTrue(MockLocationService.isRunning)
+            assertEquals(before, MockLocationService.snapshot)
+            assertEquals(publications, service.get().backend.fixes.size)
+            assertEquals(route, AppPreferences(application).route())
+            assertNull(shadowOf(application).nextStartedService)
+        } finally {
+            controller.pause().stop().destroy()
+            service.destroy()
+        }
     }
 
     @Test fun `invalid manual coordinates show field errors and preserve existing selection`() {
