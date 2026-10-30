@@ -19,10 +19,11 @@ La app no incluye una clave Geoapify. Sin endpoint configurado informa que el se
 npm ci --ignore-scripts
 npx wrangler login
 npx wrangler secret put GEOAPIFY_KEY
+npx wrangler secret put CLIENT_RATE_SALT
 npm run deploy
 ```
 
-Introduce la clave cuando la CLI la pida. `wrangler.jsonc` crea un Durable Object SQLite; no actives Workers Paid. La configuración desactiva observabilidad del Worker. No actives logs de solicitudes o cuerpos que incluyan coordenadas o la clave del proveedor.
+Introduce la clave cuando la CLI la pida. Para `CLIENT_RATE_SALT`, genera un secreto aleatorio local de al menos 32 caracteres; no lo reutilices ni lo incluyas en el APK. Sin ambos secretos el proxy responde 503. `wrangler.jsonc` crea Durable Objects SQLite; no actives Workers Paid. La configuración desactiva observabilidad del Worker. No actives logs de solicitudes o cuerpos que incluyan coordenadas o la clave del proveedor.
 
 3. Toma la URL HTTPS que devuelve Cloudflare y añade `/v1/route`. Compila con:
 
@@ -33,6 +34,10 @@ Introduce la clave cuando la CLI la pida. `wrangler.jsonc` crea un Durable Objec
 En GitHub configura la variable de repositorio `ROUTING_URL` con esa URL para la entrega estable. El workflow de pruebas normal no presupone un servicio externo configurado. Comprueba en un teléfono los tres perfiles antes de distribuir con el endpoint activo.
 
 La cuota se comparte entre todas las instalaciones: 100 intentos por ventana móvil de 24 h, 10 por minuto, uno por segundo y 2.000 créditos contabilizados. El contador reserva antes de llamar al proveedor; no reintenta automáticamente y bloquea si el contador falla. También registra de forma conservadora recargos de un desvío superior a 500 km, aunque la app lo rechace por superar 100 km.
+
+Antes de consumir el cupo global, cada origen de red admite hasta 20 intentos por día UTC, 3 por minuto y 400 créditos. El origen procede exclusivamente de `CF-Connecting-IP` proporcionado por el borde Cloudflare; no se confía en `X-Forwarded-For`. La IP solo se usa en memoria para un HMAC con secreto del servidor y día UTC. El identificador cambia cada día; se guardan tiempos y créditos, no IP ni rutas, y una alarma elimina registros caducados sin esperar a otro acceso.
+
+Este reparto reduce el agotamiento del cupo por un solo origen; no autentica usuarios ni evita ataques distribuidos o cambios de IP. Las redes compartidas comparten cupo y alrededor de medianoche puede consumirse el cupo de dos días, siempre bajo el límite global móvil. Despliega directamente en Cloudflare sin reenviadores propios que puedan sustituir el encabezado; conserva las reglas del borde. Si se necesita identidad de instalación, la atestación exige configuración del propietario y una fase adicional. No uses una clave estática en el APK como identidad.
 
 Geoapify Free ofrece 3.000 **créditos**, no 3.000 rutas, por día y hasta 5 solicitudes/s. Una solicitud con N puntos consume normalmente N−1 créditos. Sus cuotas son blandas y puede haber recargos por distancia; estos controles no son garantía contractual de coste cero. Supervisa el panel y mantén la cuenta Free sin método de pago ni plan adicional. El cupo público puede agotarse por otros usuarios; el modo manual permanece disponible.
 
