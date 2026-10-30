@@ -73,6 +73,7 @@ class MainActivityTest {
             views(decor).forEach { it.forceLayout() }
             decor.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
             decor.layout(0, 0, width, height)
+            shadowOf(android.os.Looper.getMainLooper()).idle()
         }
     }
 
