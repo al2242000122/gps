@@ -13,5 +13,5 @@ class UserDataTestRule : ExternalResource() {
         listOf("preferences","places","simulation").forEach { context.getSharedPreferences(it,0).edit().clear().commit() }
         BackupGuard.restoring.set(false)
     }
-    override fun after() { settleDataWork(); UserDataRepository.resetForTests(); BackupGuard.restoring.set(false) }
+    override fun after() { settleDataWork(); UserDataWork.resetForTests(); UserDataRepository.resetForTests(); BackupGuard.restoring.set(false) }
 }

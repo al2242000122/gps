@@ -30,6 +30,7 @@ import java.util.Locale
 
 class AppSheets(private val activity: AppCompatActivity, private val dataModel: UserDataViewModel) {
     private val dialogs = mutableListOf<Dialog>()
+    private var coordinateDialog: Dialog? = null
     private fun dp(value: Int) = (value * activity.resources.displayMetrics.density).toInt()
     private fun string(id: Int) = activity.getString(id)
     private fun color(attr: Int) = MaterialColors.getColor(activity, attr, "GPS Mocker")
@@ -125,7 +126,11 @@ class AppSheets(private val activity: AppCompatActivity, private val dataModel: 
         onChoose: (Coordinates, (Boolean) -> Unit) -> Unit,
         onDismiss: () -> Unit
     ) {
-        val (dialog, body) = sheet(R.string.enter_coordinates, scroll = true, onDismissRequested = onDismiss)
+        val (dialog, body) = sheet(R.string.enter_coordinates, scroll = true, onDismissRequested = {
+            coordinateDialog = null
+            onDismiss()
+        })
+        coordinateDialog = dialog
         body.addView(label(string(R.string.manual_coordinates_hint)))
         val latitude = input(body, R.string.latitude, draft.latitude, numeric = true).apply {
             id = R.id.manualLatitudeInput
@@ -478,6 +483,7 @@ class AppSheets(private val activity: AppCompatActivity, private val dataModel: 
             .setPositiveButton(R.string.delete) { _, _ -> confirmed() }.setNegativeButton(R.string.cancel, null).create())
     }
 
+    fun closeCoordinates() { coordinateDialog?.dismiss() }
     fun close() { dialogs.toList().forEach { it.dismiss() }; dialogs.clear() }
     fun coordinates(point: Coordinates) = String.format(Locale.US, "%.6f, %.6f", point.latitude, point.longitude)
     private fun distance(meters: Double) = if (meters < 1000) activity.getString(R.string.distance_m, meters.toInt())

@@ -10,16 +10,25 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.runBlocking
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 /** Process-owned writes finish even if their originating screen is destroyed. */
 internal object UserDataWork {
-    private val worker = Executors.newSingleThreadExecutor { job ->
+    private var worker = newWorker()
+    private fun newWorker() = Executors.newSingleThreadExecutor { job ->
         Thread(job, "gps-user-data").apply { isDaemon = true }
     }
     private val main = Handler(Looper.getMainLooper())
     private val count = AtomicInteger()
     val pending get() = count.get()
+    /** Tests discard their Android sandbox only after its process work has drained. */
+    internal fun resetForTests() {
+        check(pending == 0)
+        worker.shutdown()
+        check(worker.awaitTermination(2, TimeUnit.SECONDS))
+        worker = newWorker()
+    }
     fun <T> submit(block: suspend () -> T, complete: (Result<T>) -> Unit) {
         count.incrementAndGet()
         worker.execute {
@@ -35,6 +44,7 @@ data class UserDataUiState(
     val ready: Boolean = false,
     val pending: Int = 0,
     val revision: Long = 0,
+    val manualApplied: Long = 0,
     val loadError: Throwable? = null
 )
 
@@ -50,10 +60,11 @@ class UserDataViewModel(application: Application) : AndroidViewModel(application
             )
         }
     }
-    fun <T> write(owner: LifecycleOwner, block: suspend () -> T, success: (T) -> Unit = {}, failure: (Throwable) -> Unit = {}) {
+    fun <T> write(owner: LifecycleOwner, block: suspend () -> T, success: (T) -> Unit = {}, failure: (Throwable) -> Unit = {}, manualSelection: Boolean = false) {
         mutable.value = mutable.value.copy(pending = mutable.value.pending + 1)
         UserDataWork.submit(block) { result ->
-            mutable.value = mutable.value.copy(pending = mutable.value.pending - 1, revision = mutable.value.revision + 1)
+            mutable.value = mutable.value.copy(pending = mutable.value.pending - 1, revision = mutable.value.revision + 1,
+                manualApplied = mutable.value.manualApplied + if (manualSelection && result.isSuccess) 1 else 0)
             if (owner.lifecycle.currentState != Lifecycle.State.DESTROYED) result.fold(success, failure)
         }
     }
