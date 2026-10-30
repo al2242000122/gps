@@ -59,8 +59,19 @@ class AppSheets(private val activity: AppCompatActivity) {
         }
     }
 
-    private fun sheet(title: Int, scroll: Boolean = false): Pair<BottomSheetDialog, LinearLayout> {
-        val dialog = BottomSheetDialog(activity)
+    private fun sheet(
+        title: Int,
+        scroll: Boolean = false,
+        onDismissRequested: () -> Unit = {}
+    ): Pair<BottomSheetDialog, LinearLayout> {
+        val dialog = object : BottomSheetDialog(activity) {
+            override fun dismiss() {
+                // Dialog's OnDismissListener is posted to the main loop. Clear drafts
+                // before a recreation can save them again after an explicit dismissal.
+                onDismissRequested()
+                super.dismiss()
+            }
+        }
         val content = column()
         val heading = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         heading.addView(label(string(title), 22f, false), LinearLayout.LayoutParams(0, -2, 1f))
@@ -114,7 +125,7 @@ class AppSheets(private val activity: AppCompatActivity) {
         onChoose: (Coordinates) -> Boolean,
         onDismiss: () -> Unit
     ) {
-        val (dialog, body) = sheet(R.string.enter_coordinates, scroll = true)
+        val (dialog, body) = sheet(R.string.enter_coordinates, scroll = true, onDismissRequested = onDismiss)
         body.addView(label(string(R.string.manual_coordinates_hint)))
         val latitude = input(body, R.string.latitude, draft.latitude, numeric = true).apply {
             id = R.id.manualLatitudeInput
@@ -170,7 +181,6 @@ class AppSheets(private val activity: AppCompatActivity) {
         longitude.setOnEditorActionListener { _, action, _ ->
             if (action == EditorInfo.IME_ACTION_DONE) { apply.performClick(); true } else false
         }
-        dialog.setOnDismissListener { dialogs.remove(dialog); onDismiss() }
         show(dialog)
     }
 
