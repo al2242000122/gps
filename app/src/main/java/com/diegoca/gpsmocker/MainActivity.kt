@@ -192,6 +192,11 @@ class MainActivity : AppCompatActivity() {
         select(selected, center = false, name = selectedName, address = store.selectionAddress, reverse = false, persist = false)
         pendingCurrentLocation = savedInstanceState?.getBoolean("pendingCurrentLocation", false) ?: false
         bindActions()
+        if (resources.configuration.fontScale > 1.3f) {
+            listOf(R.id.libraryButton, R.id.routesButton, R.id.shareButton).forEach { id ->
+                findViewById<MaterialButton>(id).icon = null
+            }
+        }
         if (savedInstanceState?.containsKey("manualLatitude") == true) {
             openCoordinateEditor(CoordinateDraft(
                 savedInstanceState.getString("manualLatitude").orEmpty(),
@@ -469,6 +474,11 @@ class MainActivity : AppCompatActivity() {
         pause.visibility = if (state?.routePoints?.isNotEmpty() == true && !state.completed) View.VISIBLE else View.GONE
         pause.setIconResource(if (state?.paused == true) R.drawable.ic_play else R.drawable.ic_pause)
         pause.contentDescription = getString(if (state?.paused == true) R.string.resume else R.string.pause)
+        pause.setText(if (state?.paused == true) R.string.resume else R.string.pause)
+        findViewById<TextView>(R.id.activePositionText).apply {
+            visibility = if (state != null) View.VISIBLE else View.GONE
+            if (state != null) text = getString(R.string.simulated_position, coordinatesText(state.coordinates))
+        }
         findViewById<MaterialButton>(R.id.startButton).apply {
             setText(if (routeMode) R.string.route_start else if (state != null) R.string.update_location else R.string.begin)
             icon = if (pause.visibility == View.VISIBLE) null else AppCompatResources.getDrawable(this@MainActivity, R.drawable.ic_play)

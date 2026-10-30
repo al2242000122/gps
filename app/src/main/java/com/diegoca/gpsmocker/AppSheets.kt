@@ -441,9 +441,30 @@ class AppSheets(private val activity: AppCompatActivity, private val dataModel: 
     }
 
     fun developer(onOpen: () -> Unit) {
-        show(MaterialAlertDialogBuilder(activity).setTitle(R.string.developer_settings).setMessage(activity.getString(R.string.developer_guide, string(R.string.app_name)))
+        val body = column()
+        val steps = label("", 16f, false).apply { minimumHeight = dp(144) }
+        body.addView(steps)
+        body.addView(label(activity.getString(R.string.developer_guide, string(R.string.app_name))))
+        body.addView(label(string(R.string.preparation_mark)))
+        val summary = label("", 14f, false)
+        body.addView(summary)
+        fun refresh() {
+            val checks = listOf(
+                MockPermissions.isMockApp(activity) to activity.getString(R.string.preparation_mock, string(R.string.app_name)),
+                MockPermissions.locationEnabled(activity) to string(R.string.preparation_location),
+                MockPermissions.hasLocation(activity) to string(R.string.preparation_permission)
+            )
+            steps.text = checks.joinToString("\n\n") { (ready, text) -> "${if (ready) "✓ Listo" else "Pendiente"} · $text" }
+            summary.setText(if (checks.all { it.first }) R.string.preparation_ready else R.string.preparation_pending)
+        }
+        refresh()
+        val scroll = ScrollView(activity).apply { addView(body) }
+        val dialog = MaterialAlertDialogBuilder(activity).setTitle(R.string.preparation_title).setView(scroll)
             .setPositiveButton(R.string.open_settings_action) { _, _ -> onOpen() }
-            .setNegativeButton(R.string.cancel, null).create())
+            .setNeutralButton(R.string.check_preparation, null)
+            .setNegativeButton(R.string.cancel, null).create()
+        show(dialog)
+        dialog.getButton(android.content.DialogInterface.BUTTON_NEUTRAL).setOnClickListener { refresh() }
     }
 
     private fun write(action: () -> Unit, saved: () -> Unit, failed: () -> Unit = {}) {

@@ -8,15 +8,15 @@
         android:contentDescription="@string/map_description" />
 
     <com.google.android.material.card.MaterialCardView android:id="@+id/searchCard"
-        android:layout_width="match_parent" android:layout_height="64dp"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="64dp"
         android:layout_margin="16dp" android:layout_gravity="top"
         app:cardCornerRadius="24dp" app:cardElevation="5dp" app:strokeWidth="0dp">
-        <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent"
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="64dp"
             android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="8dp">
             <com.google.android.material.button.MaterialButton android:id="@+id/searchButton"
                 style="@style/Widget.GpsMocker.IconButton" android:layout_width="48dp" android:layout_height="48dp"
                 android:contentDescription="@string/search_places" app:icon="@drawable/ic_search" app:iconTint="?attr/colorPrimary" />
-            <LinearLayout android:id="@+id/searchLabel" android:layout_width="0dp" android:layout_height="match_parent"
+            <LinearLayout android:id="@+id/searchLabel" android:layout_width="0dp" android:layout_height="wrap_content" android:minHeight="64dp"
                 android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical"
                 android:clickable="true" android:focusable="true" android:background="?attr/selectableItemBackground"
                 android:contentDescription="@string/search_places">
@@ -82,13 +82,16 @@
                 <TextView android:id="@+id/statusText" android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:text="@string/select_point_hint" android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"
                     android:accessibilityLiveRegion="polite" android:maxLines="3" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp" android:text="@string/selected_point" android:textSize="12sp"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
                 <TextView android:id="@+id/placeTitle" android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:layout_marginTop="5dp" android:text="@string/selected_point" android:textSize="19sp"
                     android:textStyle="bold" android:textColor="?attr/colorOnSurface" android:maxLines="2" android:ellipsize="end" />
                 <TextView android:id="@+id/addressText" android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:layout_marginTop="3dp" android:text="@string/only_map_selection" android:textSize="13sp"
                     android:textColor="?attr/colorOnSurfaceVariant" android:maxLines="2" android:ellipsize="end" />
-                <LinearLayout android:layout_width="match_parent" android:layout_height="48dp" android:layout_marginTop="10dp"
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:layout_marginTop="10dp"
                     android:orientation="horizontal" android:gravity="center_vertical" android:background="@drawable/coordinate_background"
                     android:paddingStart="12dp" android:paddingEnd="2dp">
                     <TextView android:id="@+id/coordinatesText" android:layout_width="0dp" android:layout_height="wrap_content"
@@ -101,7 +104,7 @@
                 </LinearLayout>
                 <com.google.android.material.button.MaterialButton android:id="@+id/editCoordinatesButton"
                     style="@style/Widget.GpsMocker.ToolButton"
-                    android:layout_width="match_parent" android:layout_height="48dp"
+                    android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp"
                     android:text="@string/enter_coordinates" app:icon="@drawable/ic_location" />
                 <LinearLayout android:id="@+id/routeProgressRow" android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:orientation="vertical" android:visibility="gone" android:layout_marginTop="8dp">
@@ -111,34 +114,36 @@
                         android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp"
                         android:max="1000" app:trackCornerRadius="4dp" />
                 </LinearLayout>
-                <LinearLayout android:layout_width="match_parent" android:layout_height="64dp"
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="64dp"
                     android:layout_marginTop="8dp" android:orientation="horizontal" android:gravity="center_vertical">
                     <com.google.android.material.button.MaterialButton android:id="@+id/favoriteButton"
                         style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
                         android:layout_width="48dp" android:layout_height="48dp" android:layout_marginEnd="8dp"
                         app:icon="@drawable/ic_star" android:contentDescription="@string/save_favorite" />
                     <com.google.android.material.button.MaterialButton android:id="@+id/startButton"
-                        android:layout_width="0dp" android:layout_height="60dp" android:layout_weight="1"
+                        android:layout_width="0dp" android:layout_height="wrap_content" android:minHeight="60dp" android:layout_weight="1"
                         android:text="@string/begin" android:textSize="16sp" android:textStyle="bold"
                         app:cornerRadius="18dp" app:icon="@drawable/ic_play" app:iconGravity="textStart" />
-                    <com.google.android.material.button.MaterialButton android:id="@+id/pauseButton"
-                        style="@style/Widget.GpsMocker.IconButton" android:layout_width="48dp" android:layout_height="48dp"
-                        android:layout_marginStart="4dp" app:icon="@drawable/ic_pause" android:contentDescription="@string/pause"
-                        android:visibility="gone" />
-                    <com.google.android.material.button.MaterialButton android:id="@+id/stopButton"
-                        style="@style/Widget.GpsMocker.IconButton" android:layout_width="48dp" android:layout_height="48dp"
-                        android:layout_marginStart="4dp" app:icon="@drawable/ic_stop" app:iconTint="?attr/colorError"
-                        android:contentDescription="@string/stop" android:visibility="gone" />
                 </LinearLayout>
-                <LinearLayout android:layout_width="match_parent" android:layout_height="48dp" android:orientation="horizontal">
+                <TextView android:id="@+id/activePositionText" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:paddingVertical="8dp" android:textSize="14sp" android:textColor="?attr/colorOnSurface" android:visibility="gone" />
+                <com.google.android.material.button.MaterialButton android:id="@+id/pauseButton"
+                    android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="56dp"
+                    android:text="@string/pause" app:icon="@drawable/ic_pause" android:visibility="gone" />
+                <com.google.android.material.button.MaterialButton android:id="@+id/stopButton"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="56dp"
+                    android:text="@string/stop" app:icon="@drawable/ic_stop" app:iconTint="?attr/colorError"
+                    android:textColor="?attr/colorError" app:strokeColor="?attr/colorError" android:visibility="gone" />
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:orientation="horizontal">
                     <com.google.android.material.button.MaterialButton android:id="@+id/libraryButton"
-                        style="@style/Widget.GpsMocker.ToolButton" android:layout_width="0dp" android:layout_height="48dp"
+                        style="@style/Widget.GpsMocker.ToolButton" android:layout_width="0dp" android:layout_height="wrap_content" android:minHeight="48dp"
                         android:layout_weight="1" android:text="@string/saved_places" app:icon="@drawable/ic_library" />
                     <com.google.android.material.button.MaterialButton android:id="@+id/routesButton"
-                        style="@style/Widget.GpsMocker.ToolButton" android:layout_width="0dp" android:layout_height="48dp"
+                        style="@style/Widget.GpsMocker.ToolButton" android:layout_width="0dp" android:layout_height="wrap_content" android:minHeight="48dp"
                         android:layout_weight="1" android:text="@string/routes" app:icon="@drawable/ic_route" />
                     <com.google.android.material.button.MaterialButton android:id="@+id/shareButton"
-                        style="@style/Widget.GpsMocker.ToolButton" android:layout_width="0dp" android:layout_height="48dp"
+                        style="@style/Widget.GpsMocker.ToolButton" android:layout_width="0dp" android:layout_height="wrap_content" android:minHeight="48dp"
                         android:layout_weight="1" android:text="@string/share" app:icon="@drawable/ic_share" />
                 </LinearLayout>
             </LinearLayout>

@@ -130,6 +130,10 @@ class MainActivityTest {
         val controller = launch()
         try {
             val before = MockLocationService.snapshot
+            assertEquals(controller.get().getString(R.string.simulated_position, "0.000000, 0.000000"),
+                controller.get().findViewById<TextView>(R.id.activePositionText).text.toString())
+            assertTrue(controller.get().findViewById<Button>(R.id.pauseButton).text.isNotBlank())
+            assertTrue(controller.get().findViewById<Button>(R.id.stopButton).text.isNotBlank())
             val publications = service.get().backend.fixes.size
             controller.get().findViewById<Button>(R.id.editCoordinatesButton).clickAndSettle()
             val dialog = ShadowDialog.getLatestDialog()
@@ -466,6 +470,46 @@ class MainActivityTest {
             .first { it.text.toString()==activity.getString(R.string.edit_route) }.clickAndSettle()
         assertEquals(RouteMode.DIRECT,AppPreferences(application).route().mode)
         assertEquals("geoapify",AppPreferences(application).route().source)
+        controller.pause().stop().destroy()
+    }
+
+    @Test @Config(sdk = [35], qualifiers = "w411dp-h891dp-xxhdpi")
+    fun `large text keeps primary actions readable in the scrollable card`() {
+        RuntimeEnvironment.setFontScale(2f)
+        val controller = launch()
+        try {
+            val activity = controller.get()
+            layout(activity, 1233, 2673)
+            for (id in listOf(R.id.startButton, R.id.editCoordinatesButton, R.id.libraryButton, R.id.routesButton, R.id.shareButton)) {
+                val button = activity.findViewById<MaterialButton>(id)
+                assertTrue(button.height >= 48 * activity.resources.displayMetrics.density)
+                assertTrue("Clipped text: ${button.text}", button.height >= button.layout.height + button.compoundPaddingTop + button.compoundPaddingBottom)
+            }
+            capture(activity, "home-font-200.png")
+        } finally {
+            controller.pause().stop().destroy()
+            RuntimeEnvironment.setFontScale(1f)
+        }
+    }
+
+    @Test @Config(sdk = [35])
+    fun `preparation checks reflect missing and granted requirements without starting simulation`() {
+        val ops = application.getSystemService(AppOpsManager::class.java)
+        val manager = application.getSystemService(LocationManager::class.java)
+        shadowOf(ops).setMode(AppOpsManager.OPSTR_MOCK_LOCATION, Process.myUid(), application.packageName, AppOpsManager.MODE_ERRORED)
+        shadowOf(manager).setLocationEnabled(false)
+        val controller = launch()
+        controller.get().findViewById<Button>(R.id.startButton).clickAndSettle()
+        val dialog = ShadowDialog.getLatestDialog() as AlertDialog
+        fun text() = views(dialog.window!!.decorView).filterIsInstance<TextView>().joinToString("\n") { it.text }
+        assertTrue(text().contains(application.getString(R.string.preparation_pending)))
+        shadowOf(ops).setMode(AppOpsManager.OPSTR_MOCK_LOCATION, Process.myUid(), application.packageName, AppOpsManager.MODE_ALLOWED)
+        shadowOf(manager).setLocationEnabled(true)
+        shadowOf(application).grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION)
+        dialog.getButton(DialogInterface.BUTTON_NEUTRAL).clickAndSettle()
+        assertTrue(dialog.isShowing)
+        assertTrue(text().contains(application.getString(R.string.preparation_ready)))
+        assertNull(shadowOf(application).nextStartedService)
         controller.pause().stop().destroy()
     }
 
