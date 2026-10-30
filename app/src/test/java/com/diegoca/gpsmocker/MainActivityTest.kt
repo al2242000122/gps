@@ -129,8 +129,8 @@ class MainActivityTest {
         )
         val controller = launch()
         try {
-            val before = MockLocationService.snapshot
-            assertEquals(controller.get().getString(R.string.simulated_position, "0.000000, 0.000000"),
+            val before = checkNotNull(MockLocationService.snapshot)
+            assertEquals(controller.get().getString(R.string.simulated_position, java.lang.String.format(java.util.Locale.US, "%.6f, %.6f", before.coordinates.latitude, before.coordinates.longitude)),
                 controller.get().findViewById<TextView>(R.id.activePositionText).text.toString())
             assertTrue(controller.get().findViewById<Button>(R.id.pauseButton).text.isNotBlank())
             assertTrue(controller.get().findViewById<Button>(R.id.stopButton).text.isNotBlank())
@@ -143,8 +143,18 @@ class MainActivityTest {
             assertFalse(dialog.isShowing)
             assertEquals(Coordinates(10.0, 20.0), SimulationStore(application).selection())
             assertTrue(MockLocationService.isRunning)
-            assertEquals(before, MockLocationService.snapshot)
-            assertEquals(publications, service.get().backend.fixes.size)
+            val after = checkNotNull(MockLocationService.snapshot)
+            assertEquals(before.routePoints, after.routePoints)
+            assertEquals(before.paused, after.paused)
+            assertEquals(before.speedKmh, after.speedKmh, 0.0)
+            assertTrue(after.fraction >= before.fraction)
+            // Normal route ticks may run while IO finishes. None may publish the editor's point.
+            assertEquals(0.0, after.coordinates.latitude, 0.0)
+            assertTrue(after.coordinates.longitude in 0.0..0.01)
+            service.get().backend.fixes.drop(publications).forEach { fix ->
+                assertEquals(0.0, fix.coordinates.latitude, 0.0)
+                assertTrue(fix.coordinates.longitude in 0.0..0.01)
+            }
             assertEquals(route, AppPreferences(application).route())
             assertNull(shadowOf(application).nextStartedService)
         } finally {
