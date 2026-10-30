@@ -19,7 +19,6 @@ internal object UserDataWork {
     private fun newWorker() = Executors.newSingleThreadExecutor { job ->
         Thread(job, "gps-user-data").apply { isDaemon = true }
     }
-    private val main = Handler(Looper.getMainLooper())
     private val count = AtomicInteger()
     val pending get() = count.get()
     /** Tests discard their Android sandbox only after its process work has drained. */
@@ -30,6 +29,7 @@ internal object UserDataWork {
         worker = newWorker()
     }
     fun <T> submit(block: suspend () -> T, complete: (Result<T>) -> Unit) {
+        val main = Handler(Looper.getMainLooper())
         count.incrementAndGet()
         worker.execute {
             val result = runCatching { runBlocking { block() } }
