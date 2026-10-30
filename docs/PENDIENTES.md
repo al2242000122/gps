@@ -1,6 +1,21 @@
 # Pendientes de GPS Mocker
 
-Actualizado: 22 de octubre de 2026. Implementación 0.4.0; las casillas completadas indican código o documentación terminados, no cuentas creadas ni validaciones físicas.
+Actualizado: 30 de octubre de 2026. Implementación 0.4.0; las casillas completadas indican código o documentación terminados, no cuentas creadas ni validaciones físicas.
+
+## Modernización auditada: cambios propuestos en ramas
+
+- Entrada manual preservada: PR #2 (`fix/paridad-coordenadas`).
+- Deltas del mapa, caché de geometría y restricción WebView: PR #3 (`perf/mapa-deltas`), CI aprobado.
+- Admisión por origen, seudónimos diarios y limpieza del presupuesto: PR #4 (`fix/routing-admision`), CI aprobado; proxy sin desplegar.
+- Persistencia fuera del hilo de UI y estado retenido: PR #5 (`refactor/estado-persistencia`).
+- Temas Figma, preparación comprobable, posición activa y accesibilidad: PR #6 (`feat/ux-preparacion`).
+- Integridad del mapa, tratamiento de atribuciones como texto y herramientas del proxy actualizadas: rama `fix/mapa-integridad`.
+
+Los PR están apilados para revisar cada fase. Las pruebas, lint y APK deben aprobarse en el head de cada PR antes de integrarlo; una captura JVM no acredita funcionamiento físico. No se ha fusionado ninguno ni modificado `main`. La integración y entrega requieren revisión y aprobación del propietario.
+
+Diseño y límites de adaptación: [DISENO_IMPLEMENTADO.md](DISENO_IMPLEMENTADO.md). Dependencias, aviso de MapLibre y controles operativos: [DEPENDENCIAS_Y_WEBVIEW.md](DEPENDENCIAS_Y_WEBVIEW.md).
+
+Pendientes que requieren acceso externo: dispositivo ADB y datos antiguos del usuario; claves de firma reales; cuentas Cloudflare/Geoapify/Play/AdMob; URL del proxy; reglas de protección y entorno de entrega en GitHub. Se conserva el código y las guías para esos pasos, sin inventar resultados de laboratorio, claves o cuentas.
 
 ## 1. Firma estable — P0
 

@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Miniflare} from 'miniflare';
+import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
 import {mkdtemp, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
-const options=persist=>({modules:true,scriptPath:new URL('../src/index.js',import.meta.url).pathname,
-  compatibilityDate:'2025-10-01',durableObjects:{BUDGET:{className:'RoutingBudget',useSQLite:true}},durableObjectsPersist:persist});
+const options=persist=>convertV4MiniflareOptions({modules:true,scriptPath:new URL('../src/index.js',import.meta.url).pathname,
+  compatibilityDate:'2025-10-01',durableObjects:{BUDGET:{className:'RoutingBudget',useSQLite:true}},resourcePersistencePath:persist});
 async function stub(mf){const ns=await mf.getDurableObjectNamespace('BUDGET');return ns.get(ns.idFromName('global-v1'));}
 const reserve=(s,body)=>s.fetch('https://budget/reserve',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
 test('SQLite serializes simultaneous reservations, settles costs and survives restart',async()=>{
