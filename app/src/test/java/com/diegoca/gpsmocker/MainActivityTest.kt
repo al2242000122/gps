@@ -23,6 +23,7 @@ import android.widget.ListView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.textfield.TextInputLayout
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -82,6 +83,103 @@ class MainActivityTest {
         assertFalse(coordinates is EditText)
         assertEquals(0, views(activity.findViewById(R.id.contentRoot)).filterIsInstance<EditText>().size)
         assertEquals("Madrid", activity.findViewById<TextView>(R.id.placeTitle).text.toString())
+        controller.pause().stop().destroy()
+    }
+
+    @Test fun `manual coordinates select a point without starting simulation or deleting a saved route`() {
+        val route = RouteDraft(listOf(Coordinates(40.0, -3.0), Coordinates(40.01, -3.01)))
+        val preferences = AppPreferences(application)
+        preferences.saveRoute(route)
+        preferences.routeWorkspace = true
+        val controller = launch()
+        val activity = controller.get()
+        activity.findViewById<Button>(R.id.editCoordinatesButton).performClick()
+        val dialog = ShadowDialog.getLatestDialog()
+        dialog.findViewById<EditText>(R.id.manualLatitudeInput).setText("-12,5")
+        dialog.findViewById<EditText>(R.id.manualLongitudeInput).setText("179.25")
+        dialog.findViewById<Button>(R.id.applyManualCoordinates).performClick()
+        assertFalse(dialog.isShowing)
+        assertEquals(Coordinates(-12.5, 179.25), SimulationStore(application).selection())
+        assertEquals("-12.500000, 179.250000", activity.findViewById<TextView>(R.id.coordinatesText).text.toString())
+        assertEquals(route, preferences.route())
+        assertFalse(preferences.routeWorkspace)
+        assertFalse(MockLocationService.isRunning)
+        assertNull(shadowOf(application).nextStartedService)
+        controller.pause().stop().destroy()
+    }
+
+    @Test fun `invalid manual coordinates show field errors and preserve existing selection`() {
+        val previous = Coordinates(40.4168, -3.7038)
+        SimulationStore(application).saveSelection(previous)
+        val controller = launch()
+        controller.get().findViewById<Button>(R.id.editCoordinatesButton).performClick()
+        val dialog = ShadowDialog.getLatestDialog()
+        val latitude = dialog.findViewById<EditText>(R.id.manualLatitudeInput)
+        val longitude = dialog.findViewById<EditText>(R.id.manualLongitudeInput)
+        for ((lat, lon) in listOf("91" to "0", "-90.1" to "0", "0" to "181", "0" to "-180.1", "-" to "", "1,2,3" to "0")) {
+            latitude.setText(lat); longitude.setText(lon)
+            dialog.findViewById<Button>(R.id.applyManualCoordinates).performClick()
+            assertTrue(dialog.isShowing)
+            assertEquals(previous, SimulationStore(application).selection())
+            assertTrue(views(dialog.window!!.decorView).filterIsInstance<TextInputLayout>().any { it.error != null })
+        }
+        assertFalse(MockLocationService.isRunning)
+        assertNull(shadowOf(application).nextStartedService)
+        controller.pause().stop().destroy()
+    }
+
+    @Test fun `cancelling manual coordinates preserves the point and route workspace`() {
+        val previous = Coordinates(40.4168, -3.7038)
+        SimulationStore(application).saveSelection(previous)
+        AppPreferences(application).routeWorkspace = true
+        val controller = launch()
+        controller.get().findViewById<Button>(R.id.editCoordinatesButton).performClick()
+        val dialog = ShadowDialog.getLatestDialog()
+        assertEquals("40.416800", dialog.findViewById<EditText>(R.id.manualLatitudeInput).text.toString())
+        dialog.findViewById<EditText>(R.id.manualLatitudeInput).setText("0")
+        views(dialog.window!!.decorView).filterIsInstance<Button>()
+            .single { it.text.toString() == application.getString(R.string.cancel) }.performClick()
+        assertFalse(dialog.isShowing)
+        assertEquals(previous, SimulationStore(application).selection())
+        assertTrue(AppPreferences(application).routeWorkspace)
+        assertNull(shadowOf(application).nextStartedService)
+        controller.pause().stop().destroy()
+    }
+
+    @Test fun `manual coordinate draft survives recreation without committing or reopening after cancel`() {
+        val previous = Coordinates(40.4168, -3.7038)
+        SimulationStore(application).saveSelection(previous)
+        val controller = launch()
+        controller.get().findViewById<Button>(R.id.editCoordinatesButton).performClick()
+        var dialog = ShadowDialog.getLatestDialog()
+        dialog.findViewById<EditText>(R.id.manualLatitudeInput).setText("-")
+        dialog.findViewById<EditText>(R.id.manualLongitudeInput).setText("19,43")
+        controller.recreate()
+        dialog = ShadowDialog.getLatestDialog()
+        assertTrue(dialog.isShowing)
+        assertEquals("-", dialog.findViewById<EditText>(R.id.manualLatitudeInput).text.toString())
+        assertEquals("19,43", dialog.findViewById<EditText>(R.id.manualLongitudeInput).text.toString())
+        assertEquals(previous, SimulationStore(application).selection())
+        dialog.dismiss()
+        controller.recreate()
+        assertFalse(ShadowDialog.getLatestDialog().isShowing)
+        assertEquals(previous, SimulationStore(application).selection())
+        controller.pause().stop().destroy()
+    }
+
+    @Test fun `manual editor stays open if restoring data blocks the selection`() {
+        val controller = launch()
+        controller.get().findViewById<Button>(R.id.editCoordinatesButton).performClick()
+        val dialog = ShadowDialog.getLatestDialog()
+        dialog.findViewById<EditText>(R.id.manualLatitudeInput).setText("10")
+        dialog.findViewById<EditText>(R.id.manualLongitudeInput).setText("20")
+        BackupGuard.restoring.set(true)
+        try {
+            dialog.findViewById<Button>(R.id.applyManualCoordinates).performClick()
+            assertTrue(dialog.isShowing)
+            assertEquals(Coordinates.DEFAULT, SimulationStore(application).selection())
+            assertNull(shadowOf(application).nextStartedService)
+        } finally { BackupGuard.restoring.set(false) }
         controller.pause().stop().destroy()
     }
 

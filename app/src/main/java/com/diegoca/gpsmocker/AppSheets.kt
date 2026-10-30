@@ -4,6 +4,9 @@ import android.app.Dialog
 import android.content.res.ColorStateList
 import android.os.Build
 import android.text.InputType
+import android.text.Editable
+import android.text.TextWatcher
+import android.text.method.DigitsKeyListener
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -103,6 +106,72 @@ class AppSheets(private val activity: AppCompatActivity) {
         layout.addView(edit)
         parent.addView(layout, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10); bottomMargin = dp(8) })
         return edit
+    }
+
+    fun coordinates(
+        draft: CoordinateDraft,
+        onDraftChanged: (CoordinateDraft) -> Unit,
+        onChoose: (Coordinates) -> Boolean,
+        onDismiss: () -> Unit
+    ) {
+        val (dialog, body) = sheet(R.string.enter_coordinates, scroll = true)
+        body.addView(label(string(R.string.manual_coordinates_hint)))
+        val latitude = input(body, R.string.latitude, draft.latitude, numeric = true).apply {
+            id = R.id.manualLatitudeInput
+            imeOptions = EditorInfo.IME_ACTION_NEXT
+        }
+        val latitudeLayout = body.getChildAt(body.childCount - 1) as TextInputLayout
+        latitudeLayout.helperText = string(R.string.latitude_range)
+        val longitude = input(body, R.string.longitude, draft.longitude, numeric = true).apply {
+            id = R.id.manualLongitudeInput
+            imeOptions = EditorInfo.IME_ACTION_DONE
+        }
+        val longitudeLayout = body.getChildAt(body.childCount - 1) as TextInputLayout
+        longitudeLayout.helperText = string(R.string.longitude_range)
+        for (field in listOf(latitude, longitude)) {
+            // Accept either decimal separator even when the keyboard uses another locale.
+            field.keyListener = DigitsKeyListener.getInstance("0123456789+-.,")
+            field.setRawInputType(InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED)
+            field.setSelectAllOnFocus(true)
+        }
+        fun watch(field: TextInputEditText, layout: TextInputLayout) {
+            field.addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                override fun afterTextChanged(s: Editable?) {
+                    layout.error = null
+                    onDraftChanged(CoordinateDraft(latitude.text.toString(), longitude.text.toString()))
+                }
+            })
+        }
+        watch(latitude, latitudeLayout)
+        watch(longitude, longitudeLayout)
+        val apply = button(R.string.select_on_map, R.drawable.ic_location).apply {
+            id = R.id.applyManualCoordinates
+            setOnClickListener {
+                val lat = latitude.text.toString()
+                val lon = longitude.text.toString()
+                val validLatitude = Coordinates.parse(lat, "0") != null
+                val validLongitude = Coordinates.parse("0", lon) != null
+                latitudeLayout.error = if (validLatitude) null else string(R.string.invalid_latitude)
+                longitudeLayout.error = if (validLongitude) null else string(R.string.invalid_longitude)
+                val point = Coordinates.parse(lat, lon)
+                if (point == null) {
+                    (if (!validLatitude) latitude else longitude).requestFocus()
+                } else if (onChoose(point)) {
+                    dialog.dismiss()
+                }
+            }
+        }
+        body.addView(apply, LinearLayout.LayoutParams(-1, dp(56)))
+        body.addView(button(R.string.cancel, textOnly = true).apply {
+            setOnClickListener { dialog.dismiss() }
+        }, LinearLayout.LayoutParams(-1, dp(48)))
+        longitude.setOnEditorActionListener { _, action, _ ->
+            if (action == EditorInfo.IME_ACTION_DONE) { apply.performClick(); true } else false
+        }
+        dialog.setOnDismissListener { dialogs.remove(dialog); onDismiss() }
+        show(dialog)
     }
 
     fun search(lookup: PlaceLookup, onChoose: (PlaceResult) -> Unit) {

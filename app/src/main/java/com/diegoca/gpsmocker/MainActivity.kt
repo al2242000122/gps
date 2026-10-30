@@ -44,6 +44,7 @@ class MainActivity : AppCompatActivity() {
     private var selected = Coordinates.DEFAULT
     private var selectedName = ""
     private var selectedAddress = ""
+    private var coordinateDraft: CoordinateDraft? = null
     private var routeDraft = RouteDraft()
     private var editingRoute = false
     private var routeMode = false
@@ -161,6 +162,12 @@ class MainActivity : AppCompatActivity() {
         select(selected, center = false, name = selectedName, address = store.selectionAddress, reverse = false, persist = false)
         pendingCurrentLocation = savedInstanceState?.getBoolean("pendingCurrentLocation", false) ?: false
         bindActions()
+        if (savedInstanceState?.containsKey("manualLatitude") == true) {
+            openCoordinateEditor(CoordinateDraft(
+                savedInstanceState.getString("manualLatitude").orEmpty(),
+                savedInstanceState.getString("manualLongitude").orEmpty()
+            ))
+        }
         findViewById<TextView>(R.id.attributionText).apply {
             text = Html.fromHtml("© <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> · <a href=\"https://openmaptiles.org\">OpenMapTiles</a> · <a href=\"https://openfreemap.org\">OpenFreeMap</a>", Html.FROM_HTML_MODE_LEGACY)
             movementMethod = LinkMovementMethod.getInstance()
@@ -198,6 +205,12 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.copyButton).setOnClickListener {
             getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(getString(R.string.selected_point), coordinatesText(selected)))
             message(getString(R.string.coordinates_copied))
+        }
+        findViewById<View>(R.id.editCoordinatesButton).setOnClickListener {
+            openCoordinateEditor(CoordinateDraft(
+                String.format(Locale.US, "%.6f", selected.latitude),
+                String.format(Locale.US, "%.6f", selected.longitude)
+            ))
         }
         findViewById<View>(R.id.shareButton).setOnClickListener { share() }
         findViewById<View>(R.id.routesButton).setOnClickListener { showRoutes() }
@@ -245,11 +258,28 @@ class MainActivity : AppCompatActivity() {
         refreshStatus()
     }
 
-    private fun select(point: Coordinates, center: Boolean, name: String = getString(R.string.selected_point), address: String = "", reverse: Boolean = true, persist: Boolean = true) {
+    private fun openCoordinateEditor(draft: CoordinateDraft) {
+        coordinateDraft = draft
         cancelDeviceLocation()
-        if (BackupGuard.restoring.get()) return
+        lookup.cancelReverse()
+        locateOnResume = false
+        sheets.coordinates(draft, onDraftChanged = { coordinateDraft = it }, onChoose = { point ->
+            // Selecting a point never starts or updates a running simulation.
+            // Preserve saved routes, and avoid geocoding so manual entry also works offline.
+            if (select(point, center = true, reverse = false)) {
+                routeMode = false
+                editingRoute = false
+                refreshStatus()
+                true
+            } else false
+        }, onDismiss = { coordinateDraft = null })
+    }
+
+    private fun select(point: Coordinates, center: Boolean, name: String = getString(R.string.selected_point), address: String = "", reverse: Boolean = true, persist: Boolean = true): Boolean {
+        cancelDeviceLocation()
+        if (BackupGuard.restoring.get()) return false
         if (persist) try { store.saveSelection(point, name, address) }
-            catch (e: Exception) { message("No se pudo guardar la ubicación: ${e.message}"); return }
+            catch (e: Exception) { message("No se pudo guardar la ubicación: ${e.message}"); return false }
         selected = point
         selectedName = name
         selectedAddress = address
@@ -265,6 +295,7 @@ class MainActivity : AppCompatActivity() {
                 } catch (e: Exception) { message("No se pudo guardar la dirección: ${e.message}") }
             }
         }
+        return true
     }
 
     private fun displaySelection() {
@@ -578,6 +609,10 @@ class MainActivity : AppCompatActivity() {
         outState.putBoolean("routeMode", routeMode)
         outState.putBoolean("locateOnResume", locateOnResume || deviceLocation.searching)
         outState.putBoolean("pendingCurrentLocation", pendingCurrentLocation)
+        coordinateDraft?.let {
+            outState.putString("manualLatitude", it.latitude)
+            outState.putString("manualLongitude", it.longitude)
+        }
         pendingRoute?.let { outState.putBoolean("pendingRoute", it) }
         pendingPoint?.let { outState.putDouble("pendingLatitude", it.latitude); outState.putDouble("pendingLongitude", it.longitude) }
         outState.putString("exportSource", exportSource)

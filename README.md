@@ -14,7 +14,7 @@ Conserva la app antigua hasta recuperar sus datos. Las firmas de depuración pue
 ## Funciones
 
 - Mapa vectorial claro por defecto, aunque el teléfono use tema oscuro; selector claro/oscuro/automático. Al abrir busca una posición real reciente sin comenzar la simulación. El botón de centrar permite reintentar y descarta ubicaciones simuladas.
-- Coordenadas de **solo lectura**. Selección desde el mapa o marcador, buscador, favoritos e historial; copiar coordenadas y compartir enlace.
+- Coordenadas de solo lectura en la tarjeta, con **Introducir coordenadas** para editar latitud y longitud en una hoja independiente. Acepta punto o coma decimal, muestra errores por campo y conserva el borrador al recrear la pantalla. Seleccionar no inicia ni actualiza la simulación. También permite elegir desde el mapa, marcador, buscador, favoritos e historial; copiar coordenadas y compartir enlace.
 - Favoritos con nombre e historial de 50 lugares. Búsqueda y dirección mediante Geocoder de Android, cuando está disponible.
 - Rutas directas, importadas GPX y cálculo por calles para caminar, bicicleta o automóvil **cuando se configure el servicio externo**. El mapa OpenFreeMap por sí solo no calcula recorridos.
 - Velocidad de 0,5–300 km/h, pausa, reanudación, repetición y progreso. Al completar se conserva la posición final hasta Detener. Los circuitos viales calculan también el regreso por calles.

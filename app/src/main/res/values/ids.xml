@@ -1,0 +1,5 @@
+<resources>
+    <item name="manualLatitudeInput" type="id" />
+    <item name="manualLongitudeInput" type="id" />
+    <item name="applyManualCoordinates" type="id" />
+</resources>
