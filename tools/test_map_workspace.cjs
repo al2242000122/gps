@@ -29,6 +29,7 @@ test('map position patches preserve route and never rebuild GeoJSON', () => {
   const context = {window:{maplibregl:{Map:FakeMap,Marker},GpsMocker:{initialState:()=>JSON.stringify({
     points:[[0,0],[1,1]],selection:[0,0],style:'light'
   }),onReady(){}}},document:{getElementById:element,createElement:element},location:{reload(){}}};
+  context.maplibregl = context.window.maplibregl;
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../app/src/main/assets/map/workspace.js'),'utf8'),context);
   const initialWrites = writes;
   for(let i=0;i<100;i++) context.window.GpsMap.render({active:[i / 100, 0]});
