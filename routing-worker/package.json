@@ -8,7 +8,7 @@
     "dev": "wrangler dev"
   },
   "devDependencies": {
-    "miniflare": "4.20251008.0",
-    "wrangler": "4.43.0"
+    "miniflare": "5.20261023.3-beta",
+    "wrangler": "4.156.0"
   }
 }

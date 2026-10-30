@@ -1,0 +1,12 @@
+{
+  "package": "maplibre-gl",
+  "upstreamVersion": "4.7.1",
+  "upstream": "https://github.com/maplibre/maplibre-gl-js/tree/v4.7.1",
+  "localPatch": "attribution-as-plain-text",
+  "advisory": "https://github.com/maplibre/maplibre-gl-js/security/advisories/GHSA-jrc7-96c5-q579",
+  "sha256": {
+    "maplibre-gl.js": "724f28115b86ea74c27eeaf37b61502fdebb09668a3719049ed042c66a6c0616",
+    "maplibre-gl.css": "576b085fdd9487a65a19215328c1e086c07ce5bf6da09b666b3806d3d008dae9",
+    "LICENSE-maplibre.txt": "ee5fc05a0677eaf69601d2c7db0d9ecd6cc27c3abc1d0733bc9ed34707cf8ef2"
+  }
+}
