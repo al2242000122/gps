@@ -44,7 +44,6 @@ import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [26, 35, 36])
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class MainActivityTest {
     @get:org.junit.Rule val userDataRule = UserDataTestRule()
     private val application: Application get() = RuntimeEnvironment.getApplication()
