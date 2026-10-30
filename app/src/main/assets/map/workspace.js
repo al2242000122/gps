@@ -56,16 +56,18 @@
     });
   }
 
-  function apply() {
+  function apply(routeChanged = false) {
     if (state.selection && !state.editing) selected.setLngLat(state.selection).addTo(map);
     else selected.remove();
     if (state.active) active.setLngLat(state.active).addTo(map);
     else active.remove();
-    route();
+    if (routeChanged) route();
   }
 
   window.GpsMap = { render(next) {
-    state = next;
+    const routeChanged = Object.prototype.hasOwnProperty.call(next, 'points') ||
+      Object.prototype.hasOwnProperty.call(next, 'editing');
+    state = { ...state, ...next };
     if (state.style && state.style !== currentStyle) {
       currentStyle = state.style; map.setStyle(currentStyle);
     }
@@ -73,13 +75,13 @@
       const camera = { center: state.camera.center, zoom: state.camera.zoom, duration: 400 };
       if (state.camera.animate) map.easeTo(camera); else map.jumpTo(camera);
     }
-    apply();
+    apply(routeChanged);
   } };
   map.on('click', e => { if (bridge) bridge.onSelect(e.lngLat.lat, e.lngLat.lng); });
   map.on('moveend', () => { const p = map.getCenter(); if (bridge) bridge.onCameraChanged(p.lat, p.lng, map.getZoom()); });
-  map.on('style.load', () => { routeKey = ''; error.hidden = true; apply(); });
-  map.on('load', () => { error.hidden = true; apply(); if (bridge) bridge.onReady(); });
+  map.on('style.load', () => { routeKey = ''; error.hidden = true; apply(true); });
+  map.on('load', () => { error.hidden = true; apply(true); if (bridge) bridge.onReady(); });
   map.on('idle', () => { if (map.isStyleLoaded()) error.hidden = true; });
   map.on('error', () => { if (bridge) bridge.onError(); if (!map.isStyleLoaded()) error.hidden = false; });
-  apply();
+  apply(true);
 })();

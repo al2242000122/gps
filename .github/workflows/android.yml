@@ -2,7 +2,7 @@ name: Compilar APK Android
 
 on:
   push:
-    branches: [main, 'feat/**', 'fix/**']
+    branches: [main, 'feat/**', 'fix/**', 'perf/**', 'refactor/**', 'test/**']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -41,6 +41,7 @@ jobs:
       - name: Probar rescate USB y servicio de rutas
         run: |
           python -m unittest discover -s tools -p 'test_*.py'
+          node --test tools/test_map_workspace.cjs
           npm ci --prefix routing-worker --ignore-scripts --no-audit --no-fund
           npm --prefix routing-worker test
       - name: Compilar y verificar

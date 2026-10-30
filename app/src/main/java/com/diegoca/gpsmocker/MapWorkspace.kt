@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.net.Uri
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -39,7 +40,11 @@ class MapWorkspace(
     private var zoom = 15.0
     private var cameraCommand: JSONObject? = null
     private var lastErrorTime = 0L
-    @Volatile private var state = "{}"
+    private data class CachedState(val fields: String = "{}", val route: String = "[]") {
+        fun full() = fields.dropLast(1) + ",\"points\":" + route + "}"
+    }
+    private var routeJson = "[]"
+    @Volatile private var state = CachedState()
 
     init { configure() }
 
@@ -65,16 +70,25 @@ class MapWorkspace(
             WebSettingsCompat.setForceDark(map.settings, WebSettingsCompat.FORCE_DARK_OFF)
         map.addJavascriptInterface(Bridge(), BRIDGE_NAME)
         map.webViewClient = object : WebViewClient() {
-            override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest): WebResourceResponse? = loader.shouldInterceptRequest(request.url)
+            override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest): WebResourceResponse? {
+                loader.shouldInterceptRequest(request.url)?.let { return it }
+                if (allowsRemoteMapRequest(request.url)) return null
+                return WebResourceResponse("text/plain", "UTF-8", 403, "Forbidden", emptyMap(), byteArrayOf().inputStream())
+            }
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest): Boolean =
-                request.isForMainFrame && request.url.toString() != ASSET_URL
+                request.url.toString() != ASSET_URL
             override fun onPageFinished(view: WebView?, url: String?) { if (url == ASSET_URL) { ready = true; render() } }
         }
         render()
         map.loadUrl(ASSET_URL)
     }
 
-    fun style(preference: String) { style = styleFor(context, preference); render() }
+    fun style(preference: String) {
+        val next = styleFor(context, preference)
+        if (style == next) return
+        style = next
+        render(JSONObject().put("style", style))
+    }
 
     fun restore(saved: Bundle?, selection: Coordinates) {
         center = saved?.let { Coordinates.from(it.getDouble("centerLatitude", Double.NaN), it.getDouble("centerLongitude", Double.NaN)) } ?: selection
@@ -87,18 +101,27 @@ class MapWorkspace(
     fun select(point: Coordinates, center: Boolean) {
         selection = point
         if (center) { this.center = point; cameraCommand = camera(true) }
-        render()
+        render(selectionPatch())
     }
 
-    fun center(point: Coordinates) { center = point; cameraCommand = camera(true); render() }
-    fun zoom(value: Double) { zoom = value.coerceIn(2.0, 19.0); cameraCommand = camera(true); render() }
+    fun center(point: Coordinates) { center = point; cameraCommand = camera(true); render(selectionPatch()) }
+    fun zoom(value: Double) { zoom = value.coerceIn(2.0, 19.0); cameraCommand = camera(true); render(selectionPatch()) }
 
     fun route(points: List<Coordinates>, isEditing: Boolean) {
         if (this.points == points && editing == isEditing) return
-        this.points = points.toList(); editing = isEditing; render()
+        this.points = points.toList(); editing = isEditing
+        val route = JSONArray()
+        this.points.forEach { route.put(it.array()) }
+        routeJson = route.toString()
+        render(JSONObject().put("points", route).put("editing", editing))
     }
 
-    fun active(point: Coordinates?) { if (active != point) { active = point; render() } }
+    fun active(point: Coordinates?) {
+        if (active != point) {
+            active = point
+            render(JSONObject().put("active", active?.array() ?: JSONObject.NULL))
+        }
+    }
 
     fun save(out: Bundle) {
         out.putDouble("zoom", zoom)
@@ -116,16 +139,19 @@ class MapWorkspace(
 
     private fun camera(animate: Boolean) = JSONObject().put("center", center.array()).put("zoom", zoom).put("animate", animate)
 
-    private fun render() {
-        val route = JSONArray()
-        points.forEach { route.put(it.array()) }
+    private fun selectionPatch() = JSONObject().put("selection", selection.array())
+        .put("center", center.array()).put("zoom", zoom).put("camera", cameraCommand ?: JSONObject.NULL)
+
+    private fun render(patch: JSONObject? = null) {
         val value = JSONObject().put("selection", selection.array()).put("active", active?.array() ?: JSONObject.NULL)
-            .put("points", route).put("editing", editing).put("style", style)
+            .put("editing", editing).put("style", style)
             .put("center", center.array()).put("zoom", zoom)
             .put("camera", cameraCommand ?: JSONObject.NULL)
-        state = value.toString()
+        // Geometry is encoded once per edit, never once per simulation tick.
+        state = CachedState(value.toString(), routeJson)
         if (ready && !closed) {
-            map.evaluateJavascript("window.GpsMap && window.GpsMap.render($state);", null)
+            val payload = patch?.toString() ?: state.full()
+            map.evaluateJavascript("window.GpsMap && window.GpsMap.render($payload);", null)
             cameraCommand = null
         }
     }
@@ -138,7 +164,7 @@ class MapWorkspace(
     }
 
     inner class Bridge {
-        @JavascriptInterface fun initialState(): String = state
+        @JavascriptInterface fun initialState(): String = state.full()
 
         @JavascriptInterface fun onReady() { ui { ready = true; render() } }
 
@@ -177,5 +203,7 @@ class MapWorkspace(
             return "https://tiles.openfreemap.org/styles/" + if (dark) "dark" else "liberty"
         }
         private fun normalize(longitude: Double) = ((longitude + 180) % 360 + 360) % 360 - 180
+        internal fun allowsRemoteMapRequest(uri: Uri) = uri.scheme == "https" &&
+            uri.host == "tiles.openfreemap.org" && uri.userInfo == null && uri.port in listOf(-1, 443)
     }
 }
