@@ -209,6 +209,11 @@ class MainActivity : AppCompatActivity() {
         select(selected, center = false, name = selectedName, address = store.selectionAddress, reverse = false, persist = false)
         pendingCurrentLocation = savedInstanceState?.getBoolean("pendingCurrentLocation", false) ?: false
         bindActions()
+        if (resources.configuration.fontScale > 1.3f) {
+            listOf(R.id.libraryButton, R.id.routesButton, R.id.shareButton).forEach { id ->
+                findViewById<MaterialButton>(id).icon = null
+            }
+        }
         if (savedInstanceState?.containsKey("manualLatitude") == true) {
             openCoordinateEditor(CoordinateDraft(
                 savedInstanceState.getString("manualLatitude").orEmpty(),
@@ -225,6 +230,7 @@ class MainActivity : AppCompatActivity() {
             insets
         }
         root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> scheduleLayout() }
+        findViewById<View>(R.id.searchCard).addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> scheduleLayout() }
         findViewById<View>(R.id.locationCard).addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> scheduleLayout() }
         ViewCompat.requestApplyInsets(root)
         refreshStatus()
@@ -496,6 +502,11 @@ class MainActivity : AppCompatActivity() {
         pause.visibility = if (state?.routePoints?.isNotEmpty() == true && !state.completed) View.VISIBLE else View.GONE
         pause.setIconResource(if (state?.paused == true) R.drawable.ic_play else R.drawable.ic_pause)
         pause.contentDescription = getString(if (state?.paused == true) R.string.resume else R.string.pause)
+        pause.setText(if (state?.paused == true) R.string.resume else R.string.pause)
+        findViewById<TextView>(R.id.activePositionText).apply {
+            visibility = if (state != null) View.VISIBLE else View.GONE
+            if (state != null) text = getString(R.string.simulated_position, coordinatesText(state.coordinates))
+        }
         findViewById<MaterialButton>(R.id.startButton).apply {
             setText(if (routeMode) R.string.route_start else if (state != null) R.string.update_location else R.string.begin)
             icon = if (pause.visibility == View.VISIBLE) null else AppCompatResources.getDrawable(this@MainActivity, R.drawable.ic_play)
@@ -621,8 +632,9 @@ class MainActivity : AppCompatActivity() {
         val searchWidth = if (wide) (root.width - dp(404) - bars.left - bars.right).coerceAtLeast(dp(180)) else -1
         margins(R.id.searchCard, searchWidth, Gravity.TOP or Gravity.START,
             bars.left + dp(16), bars.top + dp(12), bars.right + dp(16), 0)
+        val searchHeight = findViewById<View>(R.id.searchCard).height.takeIf { it > 0 } ?: dp(64)
         margins(R.id.routeBanner, searchWidth, Gravity.TOP or Gravity.START,
-            bars.left + dp(16), bars.top + dp(84), bars.right + dp(16), 0)
+            bars.left + dp(16), bars.top + dp(20) + searchHeight, bars.right + dp(16), 0)
         val cardHeight = card.height
         margins(R.id.mapControls, dp(56), Gravity.BOTTOM or if (wide) Gravity.START else Gravity.END,
             bars.left + dp(16), 0, bars.right + dp(16), bars.bottom + adSpace + dp(24) + if (wide) 0 else cardHeight)

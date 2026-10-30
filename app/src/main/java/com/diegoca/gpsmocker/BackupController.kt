@@ -40,7 +40,8 @@ class BackupController(private val activity: AppCompatActivity, private val befo
     private fun preview(backup: BackupDocument) {
         val d = backup.data
         MaterialAlertDialogBuilder(activity).setTitle("Reemplazar los datos actuales")
-            .setMessage("${DateFormat.getDateTimeInstance().format(Date(backup.exportedAt))}\n\n${d.favorites.size} favoritos · ${d.history.size} recientes\n${d.route.editablePoints.size} puntos elegidos · ${d.route.points.size} vértices de ruta\n\nSe reemplazarán tus datos y ajustes por los de este archivo. La simulación seguirá detenida.")
+            .setMessage("${DateFormat.getDateTimeInstance().format(Date(backup.exportedAt))}\n\n${d.favorites.size} favoritos · ${d.history.size} recientes\n${d.route.editablePoints.size} puntos elegidos · ${d.route.points.size} vértices de ruta\n\nSe reemplazarán todos tus datos y ajustes; no se combinarán. Puedes exportar los actuales antes y volver a abrir este archivo para restaurarlo. La simulación seguirá detenida.")
+            .setNeutralButton("Exportar actuales") { _, _ -> export.launch("gps-mocker-antes-de-restaurar.json") }
             .setNegativeButton(R.string.cancel, null).setPositiveButton("Restaurar") { _,_ ->
                 if (UserDataWork.pending > 0 || MockLocationService.isRunning || SimulationStore(activity).cleanupNeeded || !BackupGuard.restoring.compareAndSet(false, true)) {
                     notice("Espera a que se guarden los cambios, detén la simulación y completa la restauración del GPS antes de importar.")

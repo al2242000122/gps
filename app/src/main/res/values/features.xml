@@ -1,4 +1,13 @@
 <resources>
+    <string name="simulated_position">Posición simulada: %1$s</string>
+    <string name="preparation_title">Prepara tu GPS</string>
+    <string name="check_preparation">Comprobar preparación</string>
+    <string name="preparation_ready">Preparación completa. Seleccionar un punto no inicia la simulación.</string>
+    <string name="preparation_pending">Completa los pasos pendientes antes de comenzar.</string>
+    <string name="preparation_mock">Seleccionar %1$s como app de ubicación simulada</string>
+    <string name="preparation_location">Activar la ubicación del dispositivo</string>
+    <string name="preparation_permission">Conceder permiso de ubicación al comenzar</string>
+    <string name="preparation_mark">Android identifica todas las ubicaciones de esta app como simuladas.</string>
     <string name="loading_user_data">Cargando tus datos…</string>
     <string name="saving_user_data">Espera a que se guarden los cambios.</string>
     <string name="search_places">Buscar lugares</string>

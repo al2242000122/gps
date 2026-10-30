@@ -130,6 +130,10 @@ class MainActivityTest {
         val controller = launch()
         try {
             val before = checkNotNull(MockLocationService.snapshot)
+            assertEquals(controller.get().getString(R.string.simulated_position, java.lang.String.format(java.util.Locale.US, "%.6f, %.6f", before.coordinates.latitude, before.coordinates.longitude)),
+                controller.get().findViewById<TextView>(R.id.activePositionText).text.toString())
+            assertTrue(controller.get().findViewById<Button>(R.id.pauseButton).text.isNotBlank())
+            assertTrue(controller.get().findViewById<Button>(R.id.stopButton).text.isNotBlank())
             val publications = service.get().backend.fixes.size
             controller.get().findViewById<Button>(R.id.editCoordinatesButton).clickAndSettle()
             val dialog = ShadowDialog.getLatestDialog()
@@ -476,6 +480,52 @@ class MainActivityTest {
             .first { it.text.toString()==activity.getString(R.string.edit_route) }.clickAndSettle()
         assertEquals(RouteMode.DIRECT,AppPreferences(application).route().mode)
         assertEquals("geoapify",AppPreferences(application).route().source)
+        controller.pause().stop().destroy()
+    }
+
+    @Test @Config(sdk = [35], qualifiers = "w411dp-h891dp-xxhdpi")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun `large text keeps primary actions readable in the scrollable card`() {
+        RuntimeEnvironment.setFontScale(2f)
+        val controller = launch()
+        try {
+            val activity = controller.get()
+            layout(activity, 1233, 2673)
+            for (id in listOf(R.id.startButton, R.id.editCoordinatesButton, R.id.libraryButton, R.id.routesButton, R.id.shareButton)) {
+                val button = activity.findViewById<MaterialButton>(id)
+                assertTrue(button.height >= 48 * activity.resources.displayMetrics.density)
+                assertTrue("Clipped text: ${button.text}", button.height >= button.layout.height + button.compoundPaddingTop + button.compoundPaddingBottom)
+            }
+            capture(activity, "home-font-200.png")
+            activity.findViewById<Button>(R.id.routesButton).clickAndSettle()
+            views(ShadowDialog.getLatestDialog().window!!.decorView).filterIsInstance<MaterialButton>()
+                .first { it.text.toString() == activity.getString(R.string.draw_route) }.clickAndSettle()
+            layout(activity, 1233, 2673)
+            assertTrue(activity.findViewById<View>(R.id.routeBanner).top >= activity.findViewById<View>(R.id.searchCard).bottom)
+        } finally {
+            controller.pause().stop().destroy()
+            RuntimeEnvironment.setFontScale(1f)
+        }
+    }
+
+    @Test @Config(sdk = [35])
+    fun `preparation checks reflect missing and granted requirements without starting simulation`() {
+        val ops = application.getSystemService(AppOpsManager::class.java)
+        val manager = application.getSystemService(LocationManager::class.java)
+        shadowOf(ops).setMode(AppOpsManager.OPSTR_MOCK_LOCATION, Process.myUid(), application.packageName, AppOpsManager.MODE_ERRORED)
+        shadowOf(manager).setLocationEnabled(false)
+        val controller = launch()
+        controller.get().findViewById<Button>(R.id.startButton).clickAndSettle()
+        val dialog = ShadowDialog.getLatestDialog() as AlertDialog
+        fun text() = views(dialog.window!!.decorView).filterIsInstance<TextView>().joinToString("\n") { it.text }
+        assertTrue(text().contains(application.getString(R.string.preparation_pending)))
+        shadowOf(ops).setMode(AppOpsManager.OPSTR_MOCK_LOCATION, Process.myUid(), application.packageName, AppOpsManager.MODE_ALLOWED)
+        shadowOf(manager).setLocationEnabled(true)
+        shadowOf(application).grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION)
+        dialog.getButton(DialogInterface.BUTTON_NEUTRAL).clickAndSettle()
+        assertTrue(dialog.isShowing)
+        assertTrue(text().contains(application.getString(R.string.preparation_ready)))
+        assertNull(shadowOf(application).nextStartedService)
         controller.pause().stop().destroy()
     }
 
