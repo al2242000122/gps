@@ -107,6 +107,7 @@ export default {
         body:JSON.stringify({credits:input.credits,policy:'client'})});
       if (!admission.ok) return error(admission.status === 429 ? 429 : 503,
         admission.status === 429 ? 'CLIENT_QUOTA_EXHAUSTED' : 'UNAVAILABLE');
+      const clientReservation=await admission.json();
       const counter=env.BUDGET.get(env.BUDGET.idFromName('global-v1'));
       const budget=await counter.fetch('https://budget/reserve',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({credits:input.credits})});
       if (!budget.ok) return error(budget.status === 429 ? 429 : 503,budget.status === 429 ? 'QUOTA_EXHAUSTED' : 'UNAVAILABLE');
@@ -124,8 +125,10 @@ export default {
       if (Number.isFinite(resultDistance) && resultDistance>500000) {
         // Conservative rounding of the provider's surcharge, even for a rejected detour.
         const credits=input.credits+Math.ceil(resultDistance/500000);
-        const settled=await counter.fetch('https://budget/settle',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'settle',id:reservation.id,credits})});
-        if (!settled.ok) return error(503,'UNAVAILABLE');
+        const settlements=await Promise.all([[counter,reservation.id],[client,clientReservation.id]].map(([ledger,id])=>
+          ledger.fetch('https://budget/settle',{method:'POST',headers:{'content-type':'application/json'},
+            body:JSON.stringify({action:'settle',id,credits})})));
+        if (settlements.some(result=>!result.ok)) return error(503,'UNAVAILABLE');
       }
       if (data.features?.length!==1 || feature.geometry?.type!=='MultiLineString' || !Number.isFinite(feature.properties?.distance) || feature.properties.distance>100000) return error(422,'NO_ROUTE');
       // No caching or logging of request/response coordinates. Android validates the geometry too.

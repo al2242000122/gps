@@ -73,7 +73,7 @@ test('a billed long detour settles conservative credits even when rejected',asyn
   try {
     globalThis.fetch=async()=>Response.json(route(500001));
     assert.equal((await worker.fetch(request(),environment(calls))).status,422);
-    assert.deepEqual(calls,[{credits:1,policy:'client'},{credits:1},{action:'settle',id:1,credits:3}]);
+    assert.deepEqual(calls,[{credits:1,policy:'client'},{credits:1},{action:'settle',id:1,credits:3},{action:'settle',id:1,credits:3}]);
   } finally {globalThis.fetch=original;}
 });
 
@@ -98,4 +98,27 @@ test('client exhaustion or missing edge header never consumes the global budget'
   assert.ok(!names.includes('global-v1'));
   const forged=new Request('https://example.com/v1/route',{method:'POST',headers:{'content-type':'application/json','x-forwarded-for':'192.0.2.1'},body:JSON.stringify({points,profile:'walk',loop:false})});
   assert.equal((await worker.fetch(forged,env)).status,403);
+});
+
+test('billed surcharge settles both ledgers by their own ID and fails closed',async()=>{
+  const original=globalThis.fetch;
+  try {
+    for (const failClient of [false,true]) {
+      const calls=[];let upstreamCalls=0;
+      const env=environment();
+      env.BUDGET={idFromName:name=>name,get:name=>({fetch:async(_url,init)=>{
+        const body=JSON.parse(init.body);calls.push({name,...body});
+        if(body.action==='settle') return new Response(null,{status:failClient&&name!=='global-v1'?500:204});
+        return Response.json({id:name==='global-v1'?9:7},{status:201});
+      }})};
+      globalThis.fetch=async()=>{upstreamCalls++;return Response.json(route(500001));};
+      assert.equal((await worker.fetch(request(),env)).status,failClient?503:422);
+      assert.equal(upstreamCalls,1);
+      const settled=calls.filter(call=>call.action==='settle');
+      assert.equal(settled.length,2);
+      assert.deepEqual(settled.find(call=>call.name==='global-v1'),{name:'global-v1',action:'settle',id:9,credits:3});
+      assert.ok(settled.find(call=>call.name.startsWith('client-v1-')&&call.id===7&&call.credits===3));
+      assert.equal(withinBudget([{time:Date.now()-2000,credits:400}],Date.now(),1,true),false);
+    }
+  } finally {globalThis.fetch=original;}
 });
