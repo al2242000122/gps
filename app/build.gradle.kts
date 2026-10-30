@@ -60,7 +60,12 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
         unitTests.all {
-            it.maxHeapSize = "1g"
+            it.maxHeapSize = "2g"
+            it.forkEvery = 1
+            it.testLogging {
+                exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+                events("failed")
+            }
             providers.gradleProperty("legacyBackup").orNull?.let { path -> it.systemProperty("gps.backup.path", path); it.inputs.file(path) }
         }
     }
@@ -69,6 +74,8 @@ android {
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
 
 dependencies {
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.4")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
     implementation("androidx.core:core:1.15.0")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.webkit:webkit:1.12.1")

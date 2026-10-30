@@ -25,6 +25,15 @@ class SimulationStore(context: Context) {
     fun saveSelection(coordinates: Coordinates, name: String, address: String) {
         data.update { it.copy(selection = coordinates, selectionName = name.take(200), selectionAddress = address.take(500)) }
     }
+    suspend fun saveSelectionAwait(coordinates: Coordinates, name: String, address: String) {
+        data.updateAwait { it.copy(selection = coordinates, selectionName = name.take(200), selectionAddress = address.take(500)) }
+    }
+    suspend fun enrichSelectionAwait(expected: Coordinates, name: String, address: String) {
+        data.updateAwait {
+            if (it.selection != expected) it
+            else it.copy(selectionName = name.take(200), selectionAddress = address.take(500))
+        }
+    }
     var selectionName: String
         get() = data.snapshot().selectionName
         set(value) { data.update { it.copy(selectionName = value.take(200)) } }

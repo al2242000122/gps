@@ -22,6 +22,11 @@ class AppPreferences(context: Context) {
     fun options() = data.snapshot().options
     fun saveOptions(options: SimulationOptions) { data.update { it.copy(options = options) } }
     fun saveSettings(options: SimulationOptions, dynamic: Boolean) { data.update { it.copy(options = options, dynamicColor = dynamic) } }
+    suspend fun saveSettingsAwait(options: SimulationOptions, dynamic: Boolean) { data.updateAwait { it.copy(options = options, dynamicColor = dynamic) } }
+    suspend fun saveMapStyleAwait(style: String) {
+        require(style in setOf("auto", "light", "dark"))
+        data.updateAwait { it.copy(mapStyle = style) }
+    }
     var dynamicColor: Boolean
         get() = data.snapshot().dynamicColor
         set(value) { data.update { it.copy(dynamicColor = value) } }
@@ -36,4 +41,8 @@ class AppPreferences(context: Context) {
         set(value) { require(value in setOf("auto", "light", "dark")); data.update { it.copy(mapStyle = value) } }
     fun route() = data.snapshot().route
     fun saveRoute(route: RouteDraft) { BackupCodec.readRoute(BackupCodec.routeJson(route)); data.update { it.copy(route = route) } }
+    suspend fun saveRouteAwait(route: RouteDraft) {
+        BackupCodec.readRoute(BackupCodec.routeJson(route))
+        data.updateAwait { it.copy(route = route) }
+    }
 }
