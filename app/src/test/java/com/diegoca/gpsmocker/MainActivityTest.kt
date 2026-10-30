@@ -129,7 +129,7 @@ class MainActivityTest {
         )
         val controller = launch()
         try {
-            val before = MockLocationService.snapshot
+            val before = checkNotNull(MockLocationService.snapshot)
             val publications = service.get().backend.fixes.size
             controller.get().findViewById<Button>(R.id.editCoordinatesButton).clickAndSettle()
             val dialog = ShadowDialog.getLatestDialog()
@@ -139,8 +139,18 @@ class MainActivityTest {
             assertFalse(dialog.isShowing)
             assertEquals(Coordinates(10.0, 20.0), SimulationStore(application).selection())
             assertTrue(MockLocationService.isRunning)
-            assertEquals(before, MockLocationService.snapshot)
-            assertEquals(publications, service.get().backend.fixes.size)
+            val after = checkNotNull(MockLocationService.snapshot)
+            assertEquals(before.routePoints, after.routePoints)
+            assertEquals(before.paused, after.paused)
+            assertEquals(before.speedKmh, after.speedKmh, 0.0)
+            assertTrue(after.fraction >= before.fraction)
+            // Normal route ticks may run while IO finishes. None may publish the editor's point.
+            assertEquals(0.0, after.coordinates.latitude, 0.0)
+            assertTrue(after.coordinates.longitude in 0.0..0.01)
+            service.get().backend.fixes.drop(publications).forEach { fix ->
+                assertEquals(0.0, fix.coordinates.latitude, 0.0)
+                assertTrue(fix.coordinates.longitude in 0.0..0.01)
+            }
             assertEquals(route, AppPreferences(application).route())
             assertNull(shadowOf(application).nextStartedService)
         } finally {
