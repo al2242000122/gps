@@ -44,7 +44,6 @@ import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [26, 35, 36])
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class MainActivityTest {
     @get:org.junit.Rule val userDataRule = UserDataTestRule()
     private val application: Application get() = RuntimeEnvironment.getApplication()
@@ -474,6 +473,7 @@ class MainActivityTest {
     }
 
     @Test @Config(sdk = [35], qualifiers = "w411dp-h891dp-xxhdpi")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     fun `large text keeps primary actions readable in the scrollable card`() {
         RuntimeEnvironment.setFontScale(2f)
         val controller = launch()
