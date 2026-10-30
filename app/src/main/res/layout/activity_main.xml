@@ -99,6 +99,10 @@
                         style="@style/Widget.GpsMocker.IconButton" android:layout_width="48dp" android:layout_height="48dp"
                         app:icon="@drawable/ic_copy" android:contentDescription="@string/copy_coordinates" />
                 </LinearLayout>
+                <com.google.android.material.button.MaterialButton android:id="@+id/editCoordinatesButton"
+                    style="@style/Widget.GpsMocker.ToolButton"
+                    android:layout_width="match_parent" android:layout_height="48dp"
+                    android:text="@string/enter_coordinates" app:icon="@drawable/ic_location" />
                 <LinearLayout android:id="@+id/routeProgressRow" android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:orientation="vertical" android:visibility="gone" android:layout_marginTop="8dp">
                     <TextView android:id="@+id/routeProgressText" android:layout_width="match_parent" android:layout_height="wrap_content"

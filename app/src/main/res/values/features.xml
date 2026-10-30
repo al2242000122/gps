@@ -4,7 +4,16 @@
     <string name="settings">Ajustes</string>
     <string name="select_point_hint">TOCA EL MAPA PARA ELEGIR</string>
     <string name="selected_point">Ubicación seleccionada</string>
-    <string name="only_map_selection">Elige la ubicación tocando el mapa o arrastrando el marcador.</string>
+    <string name="only_map_selection">Elige un punto en el mapa, arrastra el marcador o introduce coordenadas.</string>
+    <string name="enter_coordinates">Introducir coordenadas</string>
+    <string name="latitude">Latitud</string>
+    <string name="longitude">Longitud</string>
+    <string name="manual_coordinates_hint">Usa punto o coma decimal. Seleccionar una ubicación no inicia ni actualiza la simulación.</string>
+    <string name="latitude_range">Entre −90 y 90 grados.</string>
+    <string name="longitude_range">Entre −180 y 180 grados.</string>
+    <string name="invalid_latitude">Introduce una latitud válida entre −90 y 90.</string>
+    <string name="invalid_longitude">Introduce una longitud válida entre −180 y 180.</string>
+    <string name="select_on_map">Seleccionar en el mapa</string>
     <string name="map_credits">© OpenStreetMap · OpenMapTiles · OpenFreeMap</string>
     <string name="map_load_error">No se pudo cargar el mapa. Revisa la conexión; si el problema continúa, actualiza Android System WebView.</string>
     <string name="copy_coordinates">Copiar coordenadas</string>

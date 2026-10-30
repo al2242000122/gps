@@ -26,6 +26,7 @@ class CoordinatesTest {
             assertNull(Coordinates.from(value, 0.0))
             assertNull(Coordinates.from(0.0, value))
             assertNull(Coordinates.parse(value.toString(), "0"))
+            assertNull(Coordinates.parse("0", value.toString()))
         }
     }
 

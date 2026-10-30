@@ -1,5 +1,8 @@
 package com.diegoca.gpsmocker
 
+/** Uncommitted input, including incomplete or invalid values, restored with the screen. */
+data class CoordinateDraft(val latitude: String, val longitude: String)
+
 data class Coordinates(val latitude: Double, val longitude: Double) {
     init {
         require(latitude.isFinite() && latitude in -90.0..90.0)
